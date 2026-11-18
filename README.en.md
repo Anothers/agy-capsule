@@ -4,7 +4,7 @@
 
 Context usage, multi-model quotas, cache status and generation speed in the Antigravity composer footer. Hover a capsule to see its panel; click it to pin the panel open.
 
-The [Bilibili promo video](https://www.bilibili.com/video/BV1zCsj65Ebc/) demos [v1.0.0](https://github.com/Lumidarin/agy-capsule/releases/tag/v1.0.0). The current version is **v1.1.0**. For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, and Request failure capsule in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
+Bilibili promo videos: [v1.1.0](https://www.bilibili.com/video/BV1ggsy6rEQM/) (current) · [v1.0.0](https://www.bilibili.com/video/BV1zCsj65Ebc/). For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, and Request failure capsule in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
 
 <p align="center">
   <img src="assets/readme/hero.gif" width="100%" alt="Hovering the context, quota and request-failure capsules in turn to open their panels" />
