@@ -4,11 +4,15 @@
 
 在 Antigravity 输入框底栏显示上下文占用、多模型配额、缓存状态和生成速度，悬停胶囊即可查看面板详情，点击胶囊即可固定面板。
 
-B 站宣传片：[v1.1.0](https://www.bilibili.com/video/BV1ggsy6rEQM/)（当前版本） · [v1.0.0](https://www.bilibili.com/video/BV1zCsj65Ebc/)。想保留 1.0 的简约底栏，可以在侧栏[设置](#设置)关掉生成速度、最近请求、本轮统计和请求失败胶囊；如果只想看关键数字，还可以关掉上下文明细。
-
 <p align="center">
   <img src="assets/readme/hero.gif" width="100%" alt="依次悬停上下文、配额和请求失败胶囊（无鼠标），弹出对应面板" />
 </p>
+
+宣传片（v1.1，也可以在 [B 站](https://www.bilibili.com/video/BV1ggsy6rEQM/) 观看）：
+
+https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
+
+想保留 1.0 的简约底栏，可以在侧栏[设置](#设置)关掉生成速度、最近请求、本轮统计和请求失败胶囊；如果只想看关键数字，还可以关掉上下文明细。
 
 ## 上下文
 
