@@ -36,7 +36,7 @@ Provides **Statistics** and **Settings** tabs at the top (settings live exclusiv
 
 ## Telemetry & Metric Definitions
 
-- **Ground-truth SQLite telemetry**: Reads exact API token counts (`uncached_input`, `cached_input`, `output_tokens`, `thinking_tokens`) from `~/.gemini/antigravity/conversations/<id>.db` (`%USERPROFILE%\.gemini\antigravity\conversations\<id>.db` on Windows) and resolves context limits dynamically from model metadata.
+- **Ground-truth SQLite telemetry**: Reads exact API token counts (`uncached_input`, `cached_input`, `output_tokens`, `thinking_tokens`) from the current host's `conversations/<id>.db` and resolves context limits from model metadata. Custom data roots are identified via `ANTIGRAVITY_EXECUTABLE_DATA_DIR`. Without a host path, the plugin looks for that chat ID under `~/.gemini/{antigravity,antigravity-ide,antigravity-cli}`.
 - **Compaction-aware breakdown**: Computes active context usage from the latest billed turn (`uncached_input + cached_input`) and resets 4-category accumulation (`Turn0`, `Read`, `Think`, `Write`) at the latest compaction checkpoint (`step_type = 23` or token-drop fallback).
 - **Generation speed**: `total output ÷ (TTFT + streaming time)` for the latest completed model request (`output = reply + thinking`; excludes tool execution; missing or zero timings yield `—`).
 - **Last request**: Covers only the most recent recorded model request (`TTFT–request duration` and speed); unrelated to full-turn totals.

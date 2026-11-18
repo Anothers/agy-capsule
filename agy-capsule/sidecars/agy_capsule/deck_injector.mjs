@@ -17,7 +17,19 @@ const PORT_FILE =
       ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Antigravity', 'DevToolsActivePort')
       : join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Antigravity', 'DevToolsActivePort');
 
-// Self-contained function executed inside the Antigravity renderer page.
+// A renderer can retain several composers while only one is on screen.
+function findFooterLeft() {
+  let best = null, bestWidth = 0;
+  for (const el of document.querySelectorAll('.agy-composer-footer > div:first-child')) {
+    if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
+    const r = el.getBoundingClientRect();
+    if (Math.min(r.bottom, window.innerHeight) <= Math.max(r.top, 0)) continue;
+    const width = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
+    if (width > bestWidth) { best = el; bestWidth = width; }
+  }
+  return best;
+}
+
 function pageMount(d) {
   if (window.__deckOwnerTs && d.instanceTs && d.instanceTs < window.__deckOwnerTs) {
     return 'superseded';
@@ -25,13 +37,20 @@ function pageMount(d) {
   if (d.instanceTs) {
     window.__deckOwnerTs = d.instanceTs;
   }
-  const footerLeft = document.querySelector('.agy-composer-footer > div:first-child');
+  const footerLeft = findFooterLeft();
   if (!footerLeft) {
     window.__agyCapsuleCleanup?.();
     return 'no-footer';
   }
   const presentation = globalThis.__agyCapsulePresentation;
 
+  const clearFooterLayout = (node) => {
+    node._turboTarget?.removeAttribute('data-deck-turbo-collapsed');
+    const footer = node._observedFooterLeft || node.closest('.agy-composer-footer > div:first-child');
+    if (!footer) return;
+    const classes = ['dk-fl-squeezed', 'dk-model-squeezed', 'dk-model-squeezed-hard', 'dk-squeeze-box', 'dk-squeeze-item'];
+    for (const element of [footer, ...footer.querySelectorAll(classes.map(c => '.' + c).join(','))]) element.classList.remove(...classes);
+  };
   const release = (node) => {
     if (!node) return;
     document.removeEventListener('click', node._onOutsideClick);
@@ -41,12 +60,7 @@ function pageMount(d) {
     node._resizeObserver?.disconnect();
     if (node._layoutRaf) cancelAnimationFrame(node._layoutRaf);
     node._layoutRaf = 0;
-    node._turboTarget?.removeAttribute('data-deck-turbo-collapsed');
-    const classes = ['dk-fl-squeezed', 'dk-model-squeezed', 'dk-model-squeezed-hard', 'dk-squeeze-box', 'dk-squeeze-item'];
-    for (const footer of new Set([node._observedFooterLeft, document.querySelector('.agy-composer-footer > div:first-child')])) {
-      if (!footer) continue;
-      for (const element of [footer, ...footer.querySelectorAll(classes.map(c => '.' + c).join(','))]) element.classList.remove(...classes);
-    }
+    clearFooterLayout(node);
   };
   // A late legacy injector may recreate its light-DOM strip after migration.
   // Remove it on every pass, not only when initializing the shadow host.
@@ -1103,6 +1117,7 @@ function pageMount(d) {
   };
 
   if (root._observedFooterLeft !== footerLeft) {
+    if (root._observedFooterLeft) clearFooterLayout(root);
     if (root._modelObserver) root._modelObserver.disconnect();
     if (root._resizeObserver) root._resizeObserver.disconnect();
     root._observedFooterLeft = footerLeft;
@@ -1390,7 +1405,7 @@ function installRuntime(owner, hash) {
     owner, hash,
     readState(caller) {
       if (caller < owner) return 'superseded';
-      return { owner, hash, path: location.pathname, hasFooter: !!document.querySelector('.agy-composer-footer > div:first-child') };
+      return { owner, hash, path: location.pathname, hasFooter: !!findFooterLeft() };
     },
     apply(next, path, caller) {
       if (caller < owner) return 'superseded';
@@ -1415,7 +1430,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [fmtK, fmtColK, quotaColor, makeRingSvg, formatGroupTitle, toView, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [fmtK, fmtColK, quotaColor, makeRingSvg, formatGroupTitle, toView, findFooterLeft, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const source = getPresentationScript() + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
   const code = `(()=>{const INSTANCE_TS=${Number(owner)};if(globalThis.__agyCapsuleDeck?.owner>INSTANCE_TS)return 'superseded';${getPresentationScript()}\nconst {escapeHtml,formatTokens,appearance,formatReset,cacheView}=globalThis.__agyCapsulePresentation;\n${functions}\nreturn installRuntime(INSTANCE_TS,${JSON.stringify(hash)});})()`;

@@ -16,7 +16,19 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 const settingsStore = createSettingsStore();
 const presentation = createPresentation();
 
-const CONV_DIR = join(homedir(), '.gemini', 'antigravity', 'conversations');
+function conversationDirectories(dataDir) {
+  if (dataDir) {
+    // The host passes <appData>/sidecar_data/<plugin>/<sidecar>/data.
+    const root = resolve(dataDir);
+    for (let dir = root; dir !== dirname(dir); dir = dirname(dir)) {
+      if (basename(dir) === 'sidecar_data') return [join(dirname(dir), 'conversations')];
+    }
+    return [join(root, 'conversations')]; // An explicitly supplied app data root.
+  }
+  return ['antigravity', 'antigravity-ide', 'antigravity-cli'].map(product =>
+    join(homedir(), '.gemini', product, 'conversations'));
+}
+const conversationDirs = conversationDirectories(process.env.ANTIGRAVITY_EXECUTABLE_DATA_DIR);
 
 const NO_QUOTA = { quotaGroups: [], cloudPaygo: false };
 let cachedQuota = null;
@@ -244,19 +256,28 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
 
 let lastDeckConvId = null; // '' when on New Conversation page, or uuid when on /c/<uuid>
 
-function resolveLatestConvId(preferredId) {
-  if (!existsSync(CONV_DIR)) return '';
-  const files = readdirSync(CONV_DIR)
-    .filter((f) => f.endsWith('.db'))
-    .map((f) => ({
-      id: basename(f, '.db'),
-      mtimeMs: statSync(join(CONV_DIR, f)).mtimeMs,
-    }))
-    .sort((a, b) => b.mtimeMs - a.mtimeMs);
-  if (files.length === 0) return '';
-  // Always follow the most recently modified conversation DB so switching
-  // or starting a new chat in Desktop automatically updates the panel.
-  return files[0].id;
+function resolveConversationDb(id, allowLatest) {
+  if (id) {
+    if (typeof id !== 'string' || !/^[0-9a-zA-Z_-]+$/.test(id)) return null;
+    for (const dir of conversationDirs) {
+      const path = join(dir, `${id}.db`);
+      if (statSync(path, { throwIfNoEntry: false })?.isFile()) return path;
+    }
+    return null;
+  }
+  // Before a composer selects a chat, the sidebar may follow the newest DB
+  // in one product only. Check at read time: a fresh profile may not exist yet.
+  if (!allowLatest) return null;
+  const dir = conversationDirs.find(path => statSync(path, { throwIfNoEntry: false })?.isDirectory());
+  if (!dir) return null;
+  let latest = null, newest = -Infinity;
+  for (const file of readdirSync(dir)) {
+    if (!file.endsWith('.db')) continue;
+    const path = join(dir, file);
+    const stat = statSync(path, { throwIfNoEntry: false });
+    if (stat?.isFile() && stat.mtimeMs > newest) { latest = path; newest = stat.mtimeMs; }
+  }
+  return latest;
 }
 
 async function makeEmptyContextResult() {
@@ -280,33 +301,12 @@ async function makeEmptyContextResult() {
 }
 
 async function inspectConversation(convId, exact = false) {
-  const safeConvId = typeof convId === 'string' && /^[0-9a-zA-Z_-]+$/.test(convId) ? convId : '';
-  let targetId = '';
-  if (exact) {
-    lastDeckConvId = safeConvId;
-    if (!safeConvId || !existsSync(join(CONV_DIR, `${safeConvId}.db`))) {
-      return await makeEmptyContextResult();
-    }
-    targetId = safeConvId;
-  } else {
-    if (lastDeckConvId !== null) {
-      if (!lastDeckConvId || !existsSync(join(CONV_DIR, `${lastDeckConvId}.db`))) {
-        return await makeEmptyContextResult();
-      }
-      targetId = lastDeckConvId;
-    } else {
-      targetId =
-        safeConvId && existsSync(join(CONV_DIR, `${safeConvId}.db`))
-          ? safeConvId
-          : resolveLatestConvId(safeConvId);
-    }
-    if (!targetId) {
-      return await makeEmptyContextResult();
-    }
-  }
+  if (exact) lastDeckConvId = convId || '';
+  const dbPath = resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
+  if (!dbPath) return await makeEmptyContextResult();
 
   const prefs = settingsStore.read();
-  const snapshot = conversationCache.read(join(CONV_DIR, `${targetId}.db`), prefs.showTurnMetrics);
+  const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
   if (!snapshot) return await makeEmptyContextResult();
   return {
     uiVersion: 99,
