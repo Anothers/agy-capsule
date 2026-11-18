@@ -10,7 +10,7 @@
 2. **修 Bug 或提性能**：不改变用户原有选择的修复和优化，可以直接改，不必额外加开关。
 3. **方便 review**：一个 PR 尽量只做一件事。UI 改动附截图；如果有开关，请说明默认和开启后的效果。涉及整体布局或数据口径的大改动，建议先开 Issue 讨论方向。
 
-改动代码时，请跑与改动相关的[测试](./README.md#开发测试)，并在 PR 里说明测了什么。
+改动代码时，请跑与改动相关的[测试](./README.md#开发测试)，并在 PR 里说明测了什么。开 PR 时会自动带出模板，请按模板列出所有默认体验的变化；如果 PR 说明由 AI 生成，请提交前逐条核对，确认与实际改动一致。
 
 ## English
 
@@ -20,4 +20,4 @@ Issues and pull requests are welcome. For small changes, feel free to open a PR 
 2. **Bug fixes and performance:** Fixes and optimizations that preserve users' choices don't need a new toggle.
 3. **Make reviews easy:** Keep each PR focused on one change. Include a screenshot for UI changes and, if there's a toggle, describe what users see by default and after enabling it. For major layout changes or changes to how metrics are defined, consider opening an issue to discuss the direction first.
 
-For code changes, run the relevant [tests](./README.en.md#development-tests) and mention what you checked in the PR.
+For code changes, run the relevant [tests](./README.en.md#development-tests) and mention what you checked in the PR. The PR template opens automatically; use it to list every change to the default experience. If AI wrote your PR description, check it line by line against the actual changes before submitting.
