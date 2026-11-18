@@ -11,6 +11,7 @@ import { classifyRequestError } from './errors.mjs';
 import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
 import { summarizeTurnMetrics } from './turn_metrics.mjs';
+import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 
 const settingsStore = createSettingsStore();
 const presentation = createPresentation();
@@ -1611,6 +1612,7 @@ const isMain = (() => {
   }
 })();
 
+if (isMain) installEpipeGuard();
 if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
   const { SidecarApp } = await import('sidecar_sdk');
   const app = new SidecarApp();
@@ -1620,6 +1622,7 @@ if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
   app.api('/api/settings', () => settingsStore.read(), 'GET');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
   app.run();
+  installAsyncHostRoutes(app);
 }
 if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SIDECAR_WEB_PORT)) {
   const injector = startDeckInjector(inspectConversation);
