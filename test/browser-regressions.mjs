@@ -25,6 +25,42 @@ const snapshot = () => ({
   quotaGroups: [{ displayName: 'Gemini Models', buckets: [{ window: '5h', remainingFraction: .58 }, { window: 'weekly', remainingFraction: .55 }] }],
 });
 
+await test('Footer probe and capsule follow the visible composer and release the old one', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+  const panel = (id, style) => `<section id="${id}" style="${style}"><div class="agy-composer-footer"><div><button>Gemini</button></div></div></section>`;
+  await page.setContent([
+    panel('hidden', 'display:none'), panel('invisible', 'visibility:hidden'), panel('transparent', 'opacity:0'),
+    panel('offscreen', 'position:fixed;left:110vw;width:950px'), panel('flat', 'width:0'),
+    panel('small', 'width:320px'), panel('active', 'width:800px'),
+  ].join(''));
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const probe = () => page.evaluate(owner => globalThis.__agyCapsuleDeck.readState(owner).hasFooter, owner);
+  const host = page.locator('#agy-capsule-host');
+  const mountedIn = () => host.evaluate(el => el.closest('section').id);
+  const data = snapshot();
+  assert.equal(await probe(), true);
+  await apply(page, data);
+  assert.equal(await mountedIn(), 'active');
+
+  await page.locator('#active').evaluate(el => {
+    el.querySelector('.agy-composer-footer > div').classList.add('dk-fl-squeezed');
+    el.hidden = true;
+  });
+  await apply(page, data);
+  assert.equal(await mountedIn(), 'small');
+  assert.equal(await page.locator('#active .dk-fl-squeezed').count(), 0);
+  await page.locator('#small').evaluate(el => { el.hidden = true; });
+  assert.equal(await probe(), false);
+  await apply(page, data);
+  assert.equal(await host.count(), 0);
+  await page.locator('#hidden').evaluate(el => { el.style.display = 'block'; });
+  assert.equal(await probe(), true);
+  await apply(page, data);
+  assert.equal(await mountedIn(), 'hidden');
+});
+
 await test('Sidebar clears empty or missing quotas and renders a later fresh snapshot', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
