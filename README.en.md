@@ -112,6 +112,10 @@ node --test "test/*.test.mjs"
 
 Browser regression tests are optional. With Playwright and Chromium installed, run `node test/browser-regressions.mjs` separately.
 
+## Contributing
+
+Issues and pull requests are welcome. See the [contribution guide](./CONTRIBUTING.md#english).
+
 ## Notices
 
 1. **Inspired by @z21100644 ([PR #1](https://github.com/Lumidarin/agy-capsule/pull/1))**: Thanks for the ideas behind multilingual support, parts of the panel design, click-to-pin, active-model highlighting, generation metrics and speed effects, consistent `K` / `M` token formatting, cache and quota tooltips, context overload alerts, request error classification, and hiding absent quota windows. This version also drew on style isolation, SQLite read caching, incremental CDP updates, installation and maintenance, and Sidecar auto-reload, reimplemented to fit this project. It does not include seven-category context estimates or attachment scanning. Separate settings and display languages, independent appearance controls, the request failure capsule, the new footer's collapse order, turn metrics, and Sidebar interactions were designed separately for this release.

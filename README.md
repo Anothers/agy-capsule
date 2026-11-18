@@ -113,6 +113,10 @@ node --test "test/*.test.mjs"
 
 浏览器回归是可选的。装好 Playwright 和 Chromium 后，可单独运行 `node test/browser-regressions.mjs`。
 
+## 贡献
+
+欢迎提 Issue 和 PR，详见[贡献指南](./CONTRIBUTING.md#中文)。
+
 ## 声明
 
 1. **参考 @z21100644 ([PR #1](https://github.com/Lumidarin/agy-capsule/pull/1))**：感谢提供的多语言、部分面板视觉、点击固定面板、当前模型高亮、生成指标与速度动效、统一的 `K` / `M` token 数值格式、Cache 与配额悬浮说明、上下文过载提醒、请求错误分类，以及隐藏不存在的配额窗口等思路。工程上也参考了其样式隔离、SQLite 读取缓存、CDP 增量推送、安装维护和 Sidecar 自动重载，并按本项目结构重新实现。未引入七类上下文估算与附件扫描。本版另行设计了设置语言与显示语言分离、独立外观控制、请求失败胶囊、新底栏的折叠优先级、本轮统计及 Sidebar 交互。
