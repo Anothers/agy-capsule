@@ -83,6 +83,10 @@ Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<co
 
 After an update the plugin restarts itself and reconnects the sidebar, with nothing to do by hand. The first update from an older version without automatic reload needs one manual plugin restart.
 
+### What if I move Antigravity on Windows?
+
+Open Antigravity once from its new location, then run `update.bat` again so the plugin picks up the new path. No separate Node installation is needed. If the plugin still fails to start, quit Antigravity completely and reopen it.
+
 ### Footer capsule doesn't appear
 
 The footer capsule attaches under the input box through Antigravity's debugging port. Newer Antigravity versions no longer open this port by default. Sidebar stats keep working, the capsule doesn't appear, and the sidebar shows "Footer capsule is off" at the top. To turn the port on:

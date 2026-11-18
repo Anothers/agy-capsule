@@ -84,6 +84,10 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 更新后插件会自动重启并重连侧栏，无需手动操作；从不支持自动重载的旧版首次更新时，需手动重启插件一次。
 
+### Windows：Antigravity 换了安装位置怎么办？
+
+换位置后先打开一次 Antigravity，再双击 `update.bat`，让插件记住新的启动路径；不用另装 Node。如果插件仍然启动失败，完全退出 Antigravity，再打开一次。
+
 ### 底栏胶囊不显示
 
 底栏胶囊通过 Antigravity 的调试端口挂到输入框下方。新版 Antigravity 默认不再打开这个端口，这时侧栏统计照常，但胶囊不出现，侧栏顶部会显示「底栏胶囊未启用」。打开方法：

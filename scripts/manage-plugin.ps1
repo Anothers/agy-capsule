@@ -10,6 +10,41 @@ $ErrorActionPreference = 'Stop'
 # Keep this file UTF-8 with BOM so Windows PowerShell 5.1 reads the Chinese correctly.
 function Format-Bilingual([string[]]$english, [string[]]$chinese) { (@('[English]') + $english + @('[中文]') + $chinese) -join [Environment]::NewLine }
 function Say([string[]]$english, [string[]]$chinese) { Write-Host (Format-Bilingual $english $chinese) }
+
+function Set-InstalledSidecarCommand([string]$manifestPath) {
+    # Read the host's UTF-8 wrapper as text: cmd.exe can misread non-ASCII paths in it.
+    try {
+        $wrapper = Get-Content -LiteralPath (Join-Path $env:APPDATA 'Antigravity\bin\agy-node.cmd') -Encoding UTF8 -Raw
+    } catch {
+        Say 'Could not read agy-node.cmd; keeping the default node command.' '无法读取 agy-node.cmd，保留默认的 node 启动方式。'
+        return
+    }
+    if ($wrapper -notmatch '(?im)^[ \t]*"(?<exe>(?:[a-z]:\\|\\\\)[^"\r\n]*\\Antigravity\.exe)"[ \t]+%\*[ \t]*\r?$') {
+        Say 'Could not identify Antigravity.exe in agy-node.cmd; keeping the default node command.' '无法从 agy-node.cmd 识别 Antigravity.exe 路径，保留默认的 node 启动方式。'
+        return
+    }
+    $exe = $Matches.exe
+    if ($exe -notmatch '[^\x00-\x7f]') { return }
+    if (-not [IO.File]::Exists($exe)) {
+        Say "Antigravity.exe not found at $exe; keeping the default node command." "找不到 $exe，保留默认的 node 启动方式。"
+        return
+    }
+
+    # Direct Electron launches need the SDK loader normally supplied for "node".
+    $loader = Join-Path $env:USERPROFILE '.gemini\antigravity\lib\node_modules\sidecar_sdk\register_loader.js'
+    if (-not [IO.File]::Exists($loader)) {
+        Say "SDK loader not found at $loader; keeping the default node command. Open Antigravity, then run update.bat again." "找不到 SDK 加载器 $loader，保留默认的 node 启动方式。请先打开 Antigravity，再运行 update.bat。"
+        return
+    }
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    $manifest.command = $exe
+    $manifest.args = @("--import=$(([uri]$loader).AbsoluteUri)") + $manifest.args
+    if (-not $manifest.env) { $manifest | Add-Member -NotePropertyName env -NotePropertyValue ([pscustomobject]@{}) }
+    $manifest.env | Add-Member -NotePropertyName ELECTRON_RUN_AS_NODE -NotePropertyValue '1' -Force
+    [IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 20) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+    Say 'Non-ASCII install path: the plugin will use Antigravity directly, without a separate Node installation.' 'Antigravity 安装路径含非 ASCII 字符，插件将直接用 Antigravity 启动，无需另装 Node。'
+}
+
 $pluginRoot = [IO.Path]::GetFullPath($PluginsDirectory).TrimEnd('\', '/')
 $destination = [IO.Path]::GetFullPath((Join-Path $pluginRoot 'agy-capsule'))
 
@@ -43,6 +78,7 @@ Set-Content -LiteralPath $marker -Value 'Updating agy-capsule' -Encoding ASCII
 try {
     & robocopy.exe $source $destination /MIR /XJ /XF .update-in-progress /NFL /NDL /NJH /NJS /NP /R:2 /W:1
     if ($LASTEXITCODE -ge 8) { throw (Format-Bilingual "Plugin copy failed (robocopy exit code $LASTEXITCODE)." "插件复制失败（robocopy 退出码 $LASTEXITCODE）。") }
+    Set-InstalledSidecarCommand (Join-Path $destination 'sidecars\agy_capsule\sidecar.json')
 } finally {
     Remove-Item -LiteralPath $marker -Force -ErrorAction SilentlyContinue
 }
