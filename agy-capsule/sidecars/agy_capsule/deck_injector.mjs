@@ -1433,6 +1433,8 @@ export function startDeckInjector(inspect, options = {}) {
   let lastErr = '';
   let stopped = false;
   let busy = false;
+  // 'unknown' until the first lookup; the sidebar explains 'missing' / 'unreachable'.
+  let cdpState = 'unknown';
   const logOnce = message => {
     if (lastErr !== message) { lastErr = message; console.error('[deck]', message); }
   };
@@ -1477,17 +1479,18 @@ export function startDeckInjector(inspect, options = {}) {
     if (cachedPages.length && Date.now() - lastListAt < 4000) return cachedPages;
     let port;
     try { port = readFileSync(options.portFile || PORT_FILE, 'utf8').split(/\r?\n/)[0].trim(); }
-    catch { logOnce('DevToolsActivePort not found'); return []; }
+    catch { cdpState = 'missing'; logOnce('DevToolsActivePort not found'); return []; }
     try {
       const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const targets = await response.json();
       cachedPages = targets.filter(t => t.type === 'page' && /^https?:\/\/127\.0\.0\.1:\d+\//.test(t.url || '') && t.webSocketDebuggerUrl);
       lastListAt = Date.now();
+      cdpState = 'ok';
       const ids = new Set(cachedPages.map(t => t.id));
       for (const [id, entry] of sockets) if (!ids.has(id)) retire(entry, id);
       return cachedPages;
-    } catch (error) { logOnce('CDP list failed: ' + error.message); return []; }
+    } catch (error) { cdpState = 'unreachable'; logOnce('CDP list failed: ' + error.message); return []; }
   };
   const stop = async () => {
     if (stopped) return;
@@ -1543,5 +1546,5 @@ export function startDeckInjector(inspect, options = {}) {
   };
   const timer = setInterval(tick, INTERVAL_MS);
   console.log('[deck] injector started, port file:', options.portFile || PORT_FILE);
-  return { tick, stop };
+  return { tick, stop, status: () => cdpState };
 }

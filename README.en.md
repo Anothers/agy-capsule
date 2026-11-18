@@ -79,6 +79,21 @@ Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<co
 
 After an update the plugin restarts itself and reconnects the sidebar, with nothing to do by hand. The first update from an older version without automatic reload needs one manual plugin restart.
 
+### Footer capsule doesn't appear
+
+The footer capsule attaches under the input box through Antigravity's debugging port. Newer Antigravity versions no longer open this port by default. Sidebar stats keep working, the capsule doesn't appear, and the sidebar shows "Footer capsule is off" at the top. To turn the port on:
+
+- **Windows, one step**: run this from the repository folder. It adds `--remote-debugging-port=0` to the Antigravity shortcuts on your desktop, Start menu and taskbar. Add `-Undo` to revert.
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
+  ```
+- **By hand**: add ` --remote-debugging-port=0` to the end of the shortcut's **Properties → Target**. On macOS, start it with `open -a Antigravity --args --remote-debugging-port=0`.
+
+Afterwards, **quit Antigravity completely** and open it from a shortcut. These launches skip the shortcut and won't carry the switch: an `antigravity://` link or Explorer's "Open with Antigravity" when no Antigravity window is open; Antigravity restarting itself after an auto-update; an update installer recreating the shortcuts (run the script again).
+
+The port only listens on this computer. While it's open, other programs on this computer can also control Antigravity windows through it; older Antigravity versions opened it by default anyway.
+
 ## Metric definitions
 
 - **Generation speed** = total output ÷ (TTFT + streaming time). It includes the wait for the first token.

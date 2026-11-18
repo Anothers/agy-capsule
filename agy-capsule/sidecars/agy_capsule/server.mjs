@@ -1049,6 +1049,13 @@ const UI_HTML = `<!DOCTYPE html>
     body[data-label-case="lowercase"] .panel .turn-bar-label,
     body[data-label-case="lowercase"] .panel .turn-bar-short,
     body[data-label-case="lowercase"] .panel .quota-label { text-transform: lowercase; }
+    .cdp-notice { max-width: 1120px; margin: 0 auto 10px; padding: 8px 10px; border-radius: 7px; border: 1px solid color-mix(in srgb, #e0a030 45%, transparent); background: color-mix(in srgb, #e0a030 8%, var(--background, #141414)); font-size: 12px; color: var(--muted-foreground, #8e8e93); }
+    .cdp-notice[hidden] { display: none; }
+    .cdp-notice-title { font-weight: 600; color: var(--foreground, #ebebeb); margin-bottom: 3px; }
+    .cdp-notice p { margin: 0 0 4px; }
+    .cdp-notice summary { cursor: pointer; color: var(--foreground, #ebebeb); }
+    .cdp-notice ol { margin: 5px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+    .cdp-notice code { user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--foreground, #ebebeb) 8%, transparent); color: var(--foreground, #ebebeb); word-break: break-all; }
     @media(pointer:coarse) { .pv-swatch { min-height: 40px; } }
   </style>
 </head>
@@ -1061,6 +1068,18 @@ const UI_HTML = `<!DOCTYPE html>
       <button type="button" id="sidebar-tab-settings" role="tab" aria-selected="false" aria-controls="sidebar-settings" tabindex="-1">设置</button>
     </div>
   </div>
+  <aside class="cdp-notice" id="cdp-notice" role="status" hidden>
+    <div class="cdp-notice-title" data-cdp-i18n="cdpTitle">底栏胶囊未启用</div>
+    <p data-cdp-i18n="cdpBody"></p>
+    <details>
+      <summary data-cdp-i18n="cdpHow">设置方法</summary>
+      <ol>
+        <li><span data-cdp-i18n="cdpScript"></span> <code>powershell -ExecutionPolicy Bypass -File scripts\\enable-cdp.ps1</code></li>
+        <li><span data-cdp-i18n="cdpManual"></span> <code>--remote-debugging-port=0</code></li>
+        <li data-cdp-i18n="cdpRestart"></li>
+      </ol>
+    </details>
+  </aside>
   <div class="panel sidebar-view" id="sidebar-stats" role="tabpanel" aria-labelledby="sidebar-tab-stats" tabindex="0">
     <div class="stats-layout">
       <section class="stats-context">
@@ -1231,6 +1250,7 @@ const UI_HTML = `<!DOCTYPE html>
           tab.tabIndex = selected ? 0 : -1;
           document.getElementById('sidebar-' + name).hidden = !selected;
         }
+        renderCdpNotice();
         window.scrollTo({ top: sidebarScroll[view], behavior: 'instant' });
       }
       if (focus) document.getElementById('sidebar-tab-' + view).focus({ preventScroll: true });
@@ -1583,6 +1603,20 @@ const UI_HTML = `<!DOCTYPE html>
         document.getElementById('val-out-pct').textContent = outPct;
 
         renderQuota(d.quotaGroups);
+        renderCdpNotice();
+    }
+
+    // Shown on both tabs; text follows the open tab's language.
+    function renderCdpNotice() {
+      const notice = document.getElementById('cdp-notice');
+      notice.hidden = !['missing', 'unreachable'].includes(lastData?.deckCdp);
+      if (notice.hidden) return;
+      const dict = sidebarView === 'settings' ? settingsLabels : labels;
+      notice.lang = sidebarView === 'settings' ? prefs.settingsLanguage : document.body.dataset.language;
+      for (const node of notice.querySelectorAll('[data-cdp-i18n]')) {
+        const value = dict?.[node.dataset.cdpI18n];
+        if (value && node.textContent !== value) node.textContent = value;
+      }
     }
 
     function updateControlState() {
@@ -1613,19 +1647,23 @@ const isMain = (() => {
 })();
 
 if (isMain) installEpipeGuard();
+let deckInjector = null;
 if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
   const { SidecarApp } = await import('sidecar_sdk');
   const app = new SidecarApp();
   app.page('/', () => UI_HTML);
   app.page('/ui.html', () => UI_HTML);
-  app.api('/api/context', (data) => inspectConversation(data?.conversationId || app.config.conversationId), 'GET');
+  app.api('/api/context', async (data) => ({
+    ...await inspectConversation(data?.conversationId || app.config.conversationId),
+    deckCdp: deckInjector?.status?.() ?? 'unknown',
+  }), 'GET');
   app.api('/api/settings', () => settingsStore.read(), 'GET');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
   app.run();
   installAsyncHostRoutes(app);
 }
 if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SIDECAR_WEB_PORT)) {
-  const injector = startDeckInjector(inspectConversation);
+  const injector = deckInjector = startDeckInjector(inspectConversation);
   let stopping = false;
   const shutdown = async (reason) => {
     if (stopping) return;
