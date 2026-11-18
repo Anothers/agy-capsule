@@ -83,7 +83,8 @@ After an update the plugin restarts itself and reconnects the sidebar, with noth
 
 The footer capsule attaches under the input box through Antigravity's debugging port. Newer Antigravity versions no longer open this port by default. Sidebar stats keep working, the capsule doesn't appear, and the sidebar shows "Footer capsule is off" at the top. To turn the port on:
 
-- **Windows, one step**: run this from the repository folder. It adds `--remote-debugging-port=0` to the Antigravity shortcuts on your desktop, Start menu and taskbar. Add `-Undo` to revert.
+- **Windows, during install**: after `install.bat` / `update.bat` finishes, it asks whether to add the switch if an Antigravity shortcut doesn't have it yet. Press Enter to accept.
+- **Windows, one step**: if you skipped that or the switch was lost later, run this from the repository folder. It adds `--remote-debugging-port=0` to the Antigravity shortcuts on your desktop, Start menu and taskbar. Add `-Undo` to revert.
 
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1

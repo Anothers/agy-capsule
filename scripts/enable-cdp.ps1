@@ -1,8 +1,11 @@
-# Adds --remote-debugging-port=0 to Antigravity shortcuts so the footer capsule can attach.
+﻿# Adds --remote-debugging-port=0 to Antigravity shortcuts so the footer capsule can attach.
 # Newer Antigravity builds no longer open this port on their own (issue #5).
-# Run with -Undo to remove the switch again. Restart Antigravity afterwards.
+# -Undo removes the switch again. -Ask (used by install.bat) only asks when a shortcut
+# still lacks the switch and never changes anything without an interactive yes.
+# Restart Antigravity afterwards.
 param(
     [switch]$Undo,
+    [switch]$Ask,
     [string[]]$ShortcutDirectories = @(
         [Environment]::GetFolderPath('Desktop'),
         [Environment]::GetFolderPath('CommonDesktopDirectory'),
@@ -15,41 +18,85 @@ param(
 $ErrorActionPreference = 'Stop'
 $switchName = '--remote-debugging-port'
 $switchText = "$switchName=0"
+$switchPattern = "(^|\s)$([regex]::Escape($switchName))(=\S*)?(?=\s|$)"
 $shell = New-Object -ComObject WScript.Shell
-$found = 0
 
-foreach ($directory in $ShortcutDirectories | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique) {
+# Messages are collected per language and printed as an [English] block, then a [中文] block.
+# Keep this file UTF-8 with BOM so Windows PowerShell 5.1 reads the Chinese correctly.
+$script:en = [Collections.Generic.List[string]]::new()
+$script:zh = [Collections.Generic.List[string]]::new()
+function Say([string]$english, [string]$chinese) { $script:en.Add($english); $script:zh.Add($chinese) }
+function Flush {
+    if ($script:en.Count -eq 0) { return }
+    Write-Host '[English]'; $script:en | ForEach-Object { Write-Host $_ }
+    Write-Host '[中文]'; $script:zh | ForEach-Object { Write-Host $_ }
+    $script:en.Clear(); $script:zh.Clear()
+}
+
+$shortcuts = @(foreach ($directory in $ShortcutDirectories | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -Unique) {
     foreach ($file in Get-ChildItem -LiteralPath $directory -Recurse -Filter *.lnk -ErrorAction SilentlyContinue) {
         $link = $shell.CreateShortcut($file.FullName)
-        if (-not $link.TargetPath -or (Split-Path -Leaf $link.TargetPath) -ne 'Antigravity.exe') { continue }
-        $found++
-        $arguments = [string]$link.Arguments
-        $hasSwitch = $arguments -match "(^|\s)$([regex]::Escape($switchName))(=\S*)?(?=\s|$)"
-        if ($Undo) {
-            if (-not $hasSwitch) { Write-Host "Unchanged (no switch): $($file.FullName)"; continue }
-            $next = ($arguments -replace "(^|\s)$([regex]::Escape($switchName))(=\S*)?(?=\s|$)", '').Trim()
-        } else {
-            if ($hasSwitch) { Write-Host "Already set: $($file.FullName)"; continue }
-            $next = "$arguments $switchText".Trim()
+        if ($link.TargetPath -and (Split-Path -Leaf $link.TargetPath) -eq 'Antigravity.exe') {
+            [pscustomobject]@{ Path = $file.FullName; Link = $link; HasSwitch = ([string]$link.Arguments -match $switchPattern) }
         }
-        try {
-            $link.Arguments = $next
-            $link.Save()
-            Write-Host "Updated: $($file.FullName)"
-        } catch {
-            # All-users shortcuts need an elevated prompt; leave them and say so.
-            Write-Warning "Could not update (try an administrator PowerShell): $($file.FullName)"
-        }
+    }
+})
+
+if ($Ask) {
+    $missing = @($shortcuts | Where-Object { -not $_.HasSwitch })
+    if ($shortcuts.Count -eq 0) {
+        Say "Footer capsule: if it doesn't appear, start Antigravity with $switchText (see README)." "底栏胶囊：如果没有显示，请带上 $switchText 启动 Antigravity（见 README）。"
+        Flush
+        exit 0
+    }
+    if ($missing.Count -eq 0) { exit 0 }
+    Write-Host ''
+    Say "Newer Antigravity versions need $switchText for the footer capsule under the input box." "新版 Antigravity 需要带上 $switchText 启动，输入框下方的底栏胶囊才能显示。"
+    Say 'This adds it to these Antigravity shortcuts (undo with scripts\enable-cdp.ps1 -Undo):' '将给以下 Antigravity 快捷方式加上这个参数（可用 scripts\enable-cdp.ps1 -Undo 撤销）：'
+    $missing | ForEach-Object { Say "  $($_.Path)" "  $($_.Path)" }
+    Flush
+    if ([Console]::IsInputRedirected) {
+        Say 'Not interactive, skipped. Run scripts\enable-cdp.ps1 to set it up later.' '当前无法交互，已跳过。之后可运行 scripts\enable-cdp.ps1 设置。'
+        Flush
+        exit 0
+    }
+    $answer = Read-Host 'Add it now? / 现在添加吗？[Y/n]'
+    if ($answer -and $answer.Trim() -notmatch '^(y|yes)$') {
+        Say 'Skipped. Run scripts\enable-cdp.ps1 to set it up later.' '已跳过。之后可运行 scripts\enable-cdp.ps1 设置。'
+        Flush
+        exit 0
     }
 }
 
-if ($found -eq 0) {
-    Write-Warning "No Antigravity shortcuts found. Start Antigravity with: Antigravity.exe $switchText"
+if ($shortcuts.Count -eq 0) {
+    Say "No Antigravity shortcuts found. Start Antigravity with: Antigravity.exe $switchText" "没有找到 Antigravity 快捷方式。请这样启动 Antigravity：Antigravity.exe $switchText"
+    Flush
     exit 1
 }
-if (Get-Process -Name Antigravity -ErrorAction SilentlyContinue) {
-    Write-Host 'Antigravity is running. Quit it completely, then open it from one of these shortcuts.'
-} else {
-    Write-Host 'Done. Open Antigravity from one of these shortcuts.'
+
+foreach ($shortcut in $shortcuts) {
+    $arguments = [string]$shortcut.Link.Arguments
+    if ($Undo) {
+        if (-not $shortcut.HasSwitch) { Say "Unchanged (no switch): $($shortcut.Path)" "未带参数，无需改动：$($shortcut.Path)"; continue }
+        $next = ($arguments -replace $switchPattern, '').Trim()
+    } else {
+        if ($shortcut.HasSwitch) { Say "Already set: $($shortcut.Path)" "已设置：$($shortcut.Path)"; continue }
+        $next = "$arguments $switchText".Trim()
+    }
+    try {
+        $shortcut.Link.Arguments = $next
+        $shortcut.Link.Save()
+        Say "Updated: $($shortcut.Path)" "已更新：$($shortcut.Path)"
+    } catch {
+        # All-users shortcuts need an elevated prompt; leave them and say so.
+        Say "Could not update (try an administrator PowerShell): $($shortcut.Path)" "无法修改（请用管理员 PowerShell 重试）：$($shortcut.Path)"
+    }
 }
+
+if (Get-Process -Name Antigravity -ErrorAction SilentlyContinue) {
+    Say 'Antigravity is running. Quit it completely, then open it from one of these shortcuts.' 'Antigravity 正在运行。请完全退出后，再从上面的快捷方式打开。'
+} else {
+    Say 'Done. Open Antigravity from one of these shortcuts.' '完成。请从上面的快捷方式打开 Antigravity。'
+}
+Flush
 exit 0

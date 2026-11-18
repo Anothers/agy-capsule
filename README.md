@@ -84,7 +84,8 @@ B 站宣传片：[v1.1.0](https://www.bilibili.com/video/BV1ggsy6rEQM/)（当前
 
 底栏胶囊通过 Antigravity 的调试端口挂到输入框下方。新版 Antigravity 默认不再打开这个端口，这时侧栏统计照常，但胶囊不出现，侧栏顶部会显示「底栏胶囊未启用」。打开方法：
 
-- **Windows 一键设置**：在仓库目录运行下面的命令。它会给桌面、开始菜单和任务栏上的 Antigravity 快捷方式加上 `--remote-debugging-port=0`；加 `-Undo` 可撤销。
+- **Windows 安装时设置**：`install.bat` / `update.bat` 装完后，如果 Antigravity 快捷方式还没带参数，会询问是否加上，直接回车即可。
+- **Windows 一键设置**：跳过了询问，或之后参数丢了，可在仓库目录运行下面的命令。它会给桌面、开始菜单和任务栏上的 Antigravity 快捷方式加上 `--remote-debugging-port=0`；加 `-Undo` 可撤销。
 
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1

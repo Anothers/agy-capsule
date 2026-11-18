@@ -82,8 +82,12 @@ test('enable-cdp.ps1 adds and removes the switch only on Antigravity shortcuts',
     assert.equal(r.status, 0, r.stdout + r.stderr);
     return r.stdout;
   };
+  // install.bat path: without an interactive yes nothing changes, and the install still succeeds.
+  assert.match(run('-Ask'), /Not interactive, skipped/);
+  assert.equal(args(plain), '');
   run();
   assert.equal(args(plain), '--remote-debugging-port=0');
+  assert.equal(run('-Ask').trim(), '', 'no prompt once every shortcut has the switch');
   assert.equal(args(withArgs), '--disable-gpu --remote-debugging-port=0');
   assert.equal(args(other), '');
   assert.match(run(), /Already set/);
