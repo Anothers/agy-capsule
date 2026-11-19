@@ -108,12 +108,13 @@ export function createCdpNoticeManager(options = {}) {
       return {
         everOk: raw?.everOk === true,
         lastOkAt: Number(raw?.lastOkAt) || 0,
+        lastOkSession: String(raw?.lastOkSession || ''),
         lastNotifiedSession: String(raw?.lastNotifiedSession || ''),
         lastPanelNoticeSession: String(raw?.lastPanelNoticeSession || ''),
         lastNotifiedAt: Number(raw?.lastNotifiedAt) || 0,
       };
     } catch {
-      return { everOk: false, lastOkAt: 0, lastNotifiedSession: '', lastPanelNoticeSession: '', lastNotifiedAt: 0 };
+      return { everOk: false, lastOkAt: 0, lastOkSession: '', lastNotifiedSession: '', lastPanelNoticeSession: '', lastNotifiedAt: 0 };
     }
   }
 
@@ -161,7 +162,8 @@ export function createCdpNoticeManager(options = {}) {
   }
 
   async function maybeNotify(cdpState) {
-    if (notified) return false;
+    // This is a startup notice. The debugging port can close before the sidecar does.
+    if (notified || persisted.lastOkSession === sessionId) return false;
     const hadBefore = persisted.everOk || cdpState === 'unreachable';
     if (!hadBefore) return false;
     const prefs = getPrefs() || {};
@@ -171,7 +173,7 @@ export function createCdpNoticeManager(options = {}) {
       return false;
     }
     if (platform === 'win32' && !shortcutChecked) await checkShortcuts();
-    if (notified || !['missing', 'unreachable'].includes(lastStatus)) return false;
+    if (notified || persisted.lastOkSession === sessionId || !['missing', 'unreachable'].includes(lastStatus)) return false;
     notified = true;
     persisted.lastNotifiedSession = sessionId;
     persisted.lastNotifiedAt = Date.now();
@@ -185,9 +187,10 @@ export function createCdpNoticeManager(options = {}) {
     if (cdpState === 'ok') {
       consecutiveFails = 0;
       shortcutState = 'ok';
-      if (!persisted.everOk) {
+      if (persisted.lastOkSession !== sessionId) {
         persisted.everOk = true;
         persisted.lastOkAt = Date.now();
+        persisted.lastOkSession = sessionId;
         saveState();
       }
       return;

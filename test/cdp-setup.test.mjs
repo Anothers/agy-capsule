@@ -144,6 +144,27 @@ test('cdp_notice distinguishes first-time vs post-update restart, notifies once 
   assert.equal(postUpdate.info().canFixShortcut, false);
 });
 
+test('losing CDP during shutdown does not notify after it worked in the same host session', async t => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-cdp-shutdown-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const toasts = [];
+  const options = {
+    statePath: join(dir, 'cdp_state.json'), platform: 'linux', sessionId: 'working-session',
+    getNotifyText: () => ({ title: 'T', body: 'B' }),
+    execFileImpl: (file, args, opts, cb) => { toasts.push(file); cb(null, ''); },
+  };
+  const manager = createCdpNoticeManager(options);
+  manager.observe('ok');
+  for (let i = 0; i < 3; i++) manager.observe('unreachable');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(toasts, [], 'port stops answering before the sidecar exits');
+
+  const reloaded = createCdpNoticeManager(options);
+  for (let i = 0; i < 3; i++) reloaded.observe('missing');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(toasts, [], 'a sidecar reload must not forget that CDP worked in this host session');
+});
+
 test('enable-cdp.ps1 adds and removes the switch only on Antigravity shortcuts', { skip: process.platform !== 'win32' }, t => {
   const root = mkdtempSync(join(tmpdir(), 'agy enable cdp '));
   t.after(() => rmSync(root, { recursive: true, force: true }));
