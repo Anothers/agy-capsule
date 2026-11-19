@@ -9,7 +9,7 @@
 > **不熟悉终端？** 在 Antigravity 里新开一个对话，发这句话给它：
 >
 > ```text
-> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule。
+> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-install.md 帮我安装 agy-capsule。
 > ```
 >
 > 它会替你完成第 1～3 步。之后你只需要自己完成[第 4 步](#第-4-步启用插件)。AI 没法替你重启 Antigravity，因为它自己就运行在 Antigravity 里。
@@ -141,7 +141,7 @@ This guide covers everything needed to use agy-capsule on a Mac: downloading, in
 > **Not comfortable with Terminal?** Start a new conversation in Antigravity and send it this:
 >
 > ```text
-> Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md
+> Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-install.md
 > ```
 >
 > It will handle steps 1–3. Then you only need to do [Step 4](#step-4-enable-the-plugin) yourself. The AI can't restart Antigravity for you, because it runs inside Antigravity.

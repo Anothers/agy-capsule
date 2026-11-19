@@ -86,12 +86,12 @@ Please install agy-capsule for me following https://github.com/Lumidarin/agy-cap
 
 ### macOS
 
-Follow the [macOS installation guide](./docs/macos-cdp.md#english). It covers downloading, installing, the footer capsule setup, updating, uninstalling and troubleshooting.
+Follow the [macOS installation guide](./docs/macos-install.md#english). It covers downloading, installing, the footer capsule setup, updating, uninstalling and troubleshooting.
 
 If you don't use Terminal, send this to Antigravity and let it install for you:
 
 ```text
-Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md
+Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-install.md
 ```
 
 ### Linux

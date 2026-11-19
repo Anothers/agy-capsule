@@ -87,12 +87,12 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ### macOS
 
-请按 [macOS 安装指南](./docs/macos-cdp.md#中文) 安装，里面包含下载、安装、底栏胶囊设置、更新、卸载和排查的全部步骤。
+请按 [macOS 安装指南](./docs/macos-install.md#中文) 安装，里面包含下载、安装、底栏胶囊设置、更新、卸载和排查的全部步骤。
 
 不熟悉终端的话，把这句话发给 Antigravity，让它替你装：
 
 ```text
-请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule。
+请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-install.md 帮我安装 agy-capsule。
 ```
 
 ### Linux
