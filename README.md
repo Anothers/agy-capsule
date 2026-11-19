@@ -75,49 +75,58 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ## 安装
 
-> **macOS 用户**：请按 [macOS 安装指南](./docs/macos-cdp.md#中文) 安装。不熟悉终端的话，把这句话发给 Antigravity，让它替你装：
->
-> ```text
-> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule。
-> ```
+### Windows
 
-1. 下载或拉取仓库后，运行对应脚本：
+1. 下载或拉取本仓库，双击 `install.bat`。
+   装完后，如果 Antigravity 快捷方式还没带调试参数，脚本会询问是否加上（底栏胶囊需要它），直接回车即可。
+2. **完全退出** Antigravity，再从快捷方式打开。
+3. 在 Antigravity 的 **Plugins** 面板启用 **agy-capsule**。
+4. 在对话顶部点 **… → Extensions → agy-capsule**，打开侧栏。
 
-   | 操作 | Windows | Linux |
-   |---|---|---|
-   | 安装 | `install.bat` | `sh install.sh` |
-   | 更新 | `update.bat`（先拉取新版代码） | `sh update.sh`（先拉取新版代码） |
-   | 卸载 | `uninstall.bat` | `sh uninstall.sh` |
+| 操作 | 方法 |
+|---|---|
+| 更新 | 先拉取或重新下载新版代码，再双击 `update.bat` |
+| 卸载 | 双击 `uninstall.bat` |
 
-   安装／更新会同步到 <code>~/.gemini/config/plugins/agy-capsule</code>（Windows 为 <code>%USERPROFILE%\.gemini\config\plugins\agy-capsule</code>），同时移除旧版残留文件。卸载只删除插件目录，保留设置。
-2. 在 Antigravity 的 **Plugins** 面板启用 **agy-capsule**。
-3. 在对话顶部的 **… → Extensions → agy-capsule** 打开侧栏。
+插件装在 <code>%USERPROFILE%\.gemini\config\plugins\agy-capsule</code>，安装或更新时会清掉旧版残留文件；卸载只删除插件目录，保留设置。更新后插件会自动重启并重连侧栏，无需手动操作；从不支持自动重载的旧版首次更新时，需手动重启插件一次。
 
-更新后插件会自动重启并重连侧栏，无需手动操作；从不支持自动重载的旧版首次更新时，需手动重启插件一次。
-
-### Windows：Antigravity 换了安装位置怎么办？
+#### Antigravity 换了安装位置怎么办？
 
 换位置后先打开一次 Antigravity，再双击 `update.bat`，让插件记住新的启动路径；不用另装 Node。如果插件仍然启动失败，完全退出 Antigravity，再打开一次。
 
-### 底栏胶囊不显示
+#### 底栏胶囊不显示
 
 底栏胶囊通过 Antigravity 的调试端口挂到输入框下方。新版 Antigravity 默认不再打开这个端口，这时侧栏统计照常，但胶囊不出现，侧栏顶部会显示「底栏胶囊未启用」。打开方法：
 
-- **Windows 安装时设置**：`install.bat` / `update.bat` 装完后，如果 Antigravity 快捷方式还没带参数，会询问是否加上，直接回车即可。
-- **Windows 一键设置**：跳过了询问，或之后参数丢了，可在仓库目录运行下面的命令。它会给桌面、开始菜单和任务栏上的 Antigravity 快捷方式加上 `--remote-debugging-port=0`；加 `-Undo` 可撤销。
+- **一键设置**：安装时跳过了询问，或之后参数丢了，可在仓库目录运行下面的命令。它会给桌面、开始菜单和任务栏上的 Antigravity 快捷方式加上 `--remote-debugging-port=0`；加 `-Undo` 可撤销。
 
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
   ```
-- **Windows 手动设置**：在快捷方式「属性 → 目标」末尾加上 ` --remote-debugging-port=0`。
-- **macOS**：见 [macOS 安装指南](./docs/macos-cdp.md#中文) 第 3 步，做一个带参数的启动图标。
+- **手动设置**：在快捷方式「属性 → 目标」末尾加上 ` --remote-debugging-port=0`。
 
 改完后要**完全退出** Antigravity 再从快捷方式打开。以下启动方式不经过快捷方式，不会带上参数：点 `antigravity://` 链接或在资源管理器里「用 Antigravity 打开」时恰好没有窗口在运行；Antigravity 自动更新后自行重启；更新安装器重建了快捷方式（需要再运行一次脚本）。
 
-> **客户端更新后胶囊消失，需要重新更新 agy-capsule 吗？**
-> **不需要。** 这是因为客户端更新后自行重启没有走带参数的快捷方式，只需**完全退出 Antigravity 并从快捷方式重新打开**即可恢复。如果之前已启用过底栏胶囊，插件会自动识别这一场景：在侧栏顶部提示「无需更新插件」（Windows 还会自动检测快捷方式参数是否被更新清除，支持一键补回），并可在设置中开启/关闭每次异常启动弹一次系统提醒（默认开启）。
+### macOS
 
-这个端口只监听本机。打开后，本机其他程序也能通过它控制 Antigravity 窗口；旧版 Antigravity 本来就默认打开它。
+请按 [macOS 安装指南](./docs/macos-cdp.md#中文) 安装，里面包含下载、安装、底栏胶囊设置、更新、卸载和排查的全部步骤。
+
+不熟悉终端的话，把这句话发给 Antigravity，让它替你装：
+
+```text
+请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule。
+```
+
+### Linux
+
+在仓库目录运行 `sh install.sh` 安装，`sh update.sh` 更新（先拉取新版代码），`sh uninstall.sh` 卸载。插件装在 <code>~/.gemini/config/plugins/agy-capsule</code>。装好后在 **Plugins** 面板启用。底栏胶囊需要用 `--remote-debugging-port=0` 参数启动 Antigravity。
+
+### 常见问题
+
+> **客户端更新后胶囊消失，需要重新更新 agy-capsule 吗？**
+> **不需要。** 这是因为客户端更新后自行重启没有走带参数的快捷方式（或 macOS 的启动图标），只需**完全退出 Antigravity 再从快捷方式重新打开**即可恢复。如果之前已启用过底栏胶囊，插件会自动识别这一场景：在侧栏顶部提示「无需更新插件」（Windows 还会自动检测快捷方式参数是否被更新清除，支持一键补回），并可在设置中开启/关闭每次异常启动弹一次系统提醒（默认开启）。
+
+调试端口只监听本机。打开后，本机其他程序也能通过它控制 Antigravity 窗口；旧版 Antigravity 本来就默认打开它。
 
 ## 数据口径
 
