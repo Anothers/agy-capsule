@@ -12,7 +12,7 @@ Promo video (v1.1, also on [Bilibili](https://www.bilibili.com/video/BV1ggsy6rEQ
 
 https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
-For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, Request failure capsule, and Server queue alert in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
+For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, Request failure capsule, and First-token wait alert in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
 
 ## Context
 
@@ -41,12 +41,21 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 - **Highlight active model**: Highlights the pool of the selected model and dims the others.
 - **Hide absent quota windows (on by default)**: For example, AI Pro users' Argon pool has no 5-hour quota, so that empty window is hidden.
 
-## Error & queue alerts
+## Error & first-token wait alerts
 
 **Both are optional** and share the third footer capsule (request failures take priority when both are active):
 
 - **Request failure capsule**: Appears in red only when a request fails; hover or click it to see the raw error and an explanation in the panel. Reasons shown: quota exhausted, rate limited (429), disconnected, authentication error, service busy and unknown.
-- **Server queue alert**: Appears in amber when waiting for the model's first token during Working exceeds the threshold (default `30s`, configurable `1–999s` at the end of Settings), ticking live while waiting. Scoped to the current turn only, showing `×N` when multiple requests exceed the threshold (e.g. `Queue×2 40s` / `Queue×2`), with per-wait details in its panel. Active local tools and streaming responses do not trigger false alerts.
+- **First-token wait alert**: An amber capsule appears when a wait reaches the threshold (default `30s`, range `1–999s`). `Wait×2 40s` means two intervals reached the threshold this turn, including a current estimate of 40 seconds. Active tools and streaming stop the live clock. Earlier slow waits remain visible in the panel.
+
+## Enhanced model capsule
+
+**Off by default.** When enabled, adds a native-styled model and effort selector to the composer footer (for both existing and new conversations): hover any multi-tier model to pick an effort level in one step from the side submenu, or click a model row directly to switch while inheriting your current effort (downgrading `XHigh`/`Extra`/`Max` to `High` if unsupported). Falls back to the native trigger automatically if the host interface does not match or the footer collapses on very narrow widths.
+
+- **Keep native button (on by default)**: Shrinks the native trigger into a `⋯` bubble next to the capsule so the native menu stays one click away; turn off to replace the native button in place.
+- **Hide model tags**: Hides tag badges such as `New` and `Notice` inside the dropdown.
+- **Hide default effort**: Hides effort previews in the model dropdown list (the footer button and hover effort submenu still show tiers, and direct clicks still inherit your current effort).
+- **Customize models**: Expands the list of models discovered from the host so you can toggle individual models on or off (at least one model always remains visible).
 
 ## Language and appearance
 
@@ -111,7 +120,7 @@ From the repository folder, run `sh install.sh` to install, `sh update.sh` to up
 - **Last request** covers only the most recent model request, not the whole turn; missing values show `—`.
 - **Turn metrics** start at your latest message; elapsed time includes queueing, waiting and tool execution.
 - **Cache expiry alerts are only a guide**: the cache state (yellow at 3 minutes, expired at 4 by default; configurable in Settings) is estimated locally from the time since the last turn; actual cache hits depend on the server.
-- **Server queue alert**: combines recorded per-turn request TTFTs with live pre-first-token waiting time while working (excluding active local tools and streaming responses), resetting automatically on each new user message.
+- **First-token wait alert** combines reported request TTFT with local step timing. The live estimate may start when processing the message begins or after a previous step finishes; it does not use the time the message was queued. The cause is unknown. The count resets when processing the next message begins.
 
 <details>
 <summary>Details</summary>
@@ -147,6 +156,7 @@ Issues and pull requests are welcome. See the [contribution guide](./CONTRIBUTIN
 
 1. **Inspired by @z21100644 ([PR #1](https://github.com/Lumidarin/agy-capsule/pull/1))**: Thanks for the ideas behind multilingual support, parts of the panel design, click-to-pin, active-model highlighting, generation metrics and speed effects, consistent `K` / `M` token formatting, cache and quota tooltips, context overload alerts, request error classification, and hiding absent quota windows. This version also drew on style isolation, SQLite read caching, incremental CDP updates, installation and maintenance, and Sidecar auto-reload, reimplemented to fit this project. It does not include seven-category context estimates or attachment scanning. Separate settings and display languages, independent appearance controls, the request failure capsule, the new footer's collapse order, turn metrics, and Sidebar interactions were designed separately for this release.
 2. **Inspired by @Krwaby123 ([PR #2](https://github.com/Lumidarin/agy-capsule/pull/2))**: Thanks for reporting quota panel overflow with page-translation extensions and proposing shared column alignment with widths that adapt to longer translations. This version uses a different grid across quota groups and marks percentages and countdowns as not translatable. Chinese countdowns are still available in Settings.
+3. **Inspired by [antigravity-Codex-Claude-effort-slider](https://github.com/LLYSH-HANNARI/antigravity-Codex-Claude-effort-slider)**: Thanks for the approach of reading host model options from the Antigravity model button's React fiber tree and submitting a model + effort pair in one step. Reimplemented here on top of agy-capsule's CDP injector with Antigravity 2.33 and new-conversation support, hover effort submenus, effort inheritance, and customizable model visibility.
 
 ## License
 
