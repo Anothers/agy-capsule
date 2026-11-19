@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
@@ -77,4 +77,63 @@ test('a write during a read is detected by the next poll rather than frozen unde
     assert.equal(cache.read(file), 7);
     assert.equal(reads, 2);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('metadata-only ctime changes on WAL or DB do not invalidate the cache', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-ctime-'));
+  const path = join(dir, 'test.db');
+  const wal = path + '-wal';
+  const writer = new DatabaseSync(path);
+  const sleep = new Int32Array(new SharedArrayBuffer(4));
+  const bumpCtimeOnly = (file, baseline) => {
+    const mode = Number(baseline.mode & 0o777n);
+    const deadline = Date.now() + 1000;
+    try {
+      do {
+        chmodSync(file, 0o444);
+        chmodSync(file, mode);
+        if (statSync(file, { bigint: true }).ctimeNs !== baseline.ctimeNs) break;
+        Atomics.wait(sleep, 0, 0, 20);
+      } while (Date.now() < deadline);
+    } finally {
+      chmodSync(file, mode);
+    }
+    const after = statSync(file, { bigint: true });
+    assert.equal(after.ino, baseline.ino);
+    assert.equal(after.size, baseline.size);
+    assert.equal(after.mtimeNs, baseline.mtimeNs);
+    assert.notEqual(after.ctimeNs, baseline.ctimeNs, 'Expected a ctime-only metadata update');
+  };
+  let dbMode = 0o666, walMode = 0o666;
+  try {
+    writer.exec('PRAGMA journal_mode=WAL; CREATE TABLE stats(value INTEGER); INSERT INTO stats VALUES(1)');
+    const dbBefore = statSync(path, { bigint: true });
+    const walBefore = statSync(wal, { bigint: true });
+    dbMode = Number(dbBefore.mode & 0o777n);
+    walMode = Number(walBefore.mode & 0o777n);
+    let reads = 0;
+    const cache = createSqliteSnapshotCache(file => {
+      reads++;
+      const db = new DatabaseSync(file, { readOnly: true });
+      let value;
+      try { value = db.prepare('SELECT value FROM stats').get().value; }
+      finally { db.close(); }
+      if (reads === 1) bumpCtimeOnly(wal, walBefore);
+      return value;
+    });
+    assert.equal(cache.read(path), 1);
+    assert.equal(cache.read(path), 1);
+    assert.equal(reads, 1);
+    bumpCtimeOnly(path, dbBefore);
+    assert.equal(cache.read(path), 1);
+    assert.equal(reads, 1);
+    writer.exec('UPDATE stats SET value=2');
+    assert.equal(cache.read(path), 2);
+    assert.equal(reads, 2);
+  } finally {
+    try { chmodSync(wal, walMode); } catch {}
+    try { chmodSync(path, dbMode); } catch {}
+    writer.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
