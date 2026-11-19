@@ -853,6 +853,8 @@ const UI_HTML = `<!DOCTYPE html>
     .sidebar-tabs[data-view="settings"] .sidebar-toggle-thumb { transform: translateX(100%); }
     @media(prefers-reduced-motion:reduce) { .sidebar-toggle-thumb { transition: none; } }
     @media(pointer:coarse) { .sidebar-tabs button { min-height: 44px; } }
+    .nowrap { white-space: nowrap; }
+    .settings-note { margin: 2px 2px 8px; font-size: 11px; line-height: 1.45; color: var(--muted-foreground, #8e8e93); }
     .settings-scope { margin-top: 8px; padding: 10px 0 4px; border-top: 1px solid var(--border, rgba(142,142,147,.22)); font-size: 12px; font-weight: 600; color: var(--muted-foreground, #8e8e93); letter-spacing: .01em; }
     .settings-scope.metric-setting { position: relative; }
     .settings-scope-title { font-size: 12px; font-weight: 600; color: var(--muted-foreground, #8e8e93); }
@@ -1213,6 +1215,7 @@ const UI_HTML = `<!DOCTYPE html>
       ['zh-CN', '', '简'],
       ['zh-TW', '', '繁'],
     ])}
+    <p class="settings-note" data-i18n="languageScopeNote"></p>
 
     <div class="settings-scope" data-i18n="appearanceSection"></div>
     ${renderPickCard('panelLayout', [
@@ -1776,7 +1779,15 @@ const UI_HTML = `<!DOCTYPE html>
         const body = dict['health' + code];
         for (const [id, text] of [['cdp-notice-title', title], ['cdp-notice-body', body]]) {
           const node = document.getElementById(id);
-          if (node.textContent !== text) node.textContent = text;
+          if (node.textContent === text) continue;
+          // Keep hyphenated names such as Lumidarin/agy-capsule on one line.
+          node.replaceChildren(...text.split(/((?:Lumidarin\\/)?agy-capsule)/).map((part, i) => {
+            if (i % 2 === 0) return part;
+            const span = document.createElement('span');
+            span.className = 'nowrap';
+            span.textContent = part;
+            return span;
+          }));
         }
         return;
       }

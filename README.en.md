@@ -54,6 +54,8 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 
 - **Display language**: English, Simplified Chinese, Traditional Chinese. The language of the panels.
 
+  Both language settings only affect agy-capsule's own interface. They don't translate Antigravity itself.
+
 - **Panel height**: Natural height sizes each panel to its content; matched height gives every panel the same height.
 
 - **Panel spacing**: Compact, standard, spacious.

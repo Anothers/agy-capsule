@@ -54,6 +54,8 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 - **显示语言**：English、简体中文、繁體中文。决定面板显示使用的语言。
 
+  两项语言设置只影响 agy-capsule 自己的界面，不会翻译 Antigravity 本身。
+
 - **面板高度**：自然高度下各面板按内容决定，对齐高度让所有面板等高。
 
 - **面板间距**：紧凑、标准、舒展。
