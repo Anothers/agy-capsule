@@ -68,16 +68,16 @@ test('summarizeTurnQueue tracks per-turn waits, ignores active tools and prevent
 
   const duringTool = summarizeTurnQueue([priorReq, slowReq], [user, plannerDone, toolRunning], 10);
   assert.deepEqual(duringTool.waits, [35], 'ignores prior turns and deduplicates covered planner step');
-  assert.equal(duringTool.waitingSinceMs, null, 'active tool must not trigger server queue timer');
+  assert.equal(duringTool.waitingSinceMs, null, 'active tool must not trigger live wait timer');
 
   const toolDone = { ...toolRunning, status: 3, recordedCompletedAtMs: 145000 };
   const afterTool = summarizeTurnQueue([priorReq, slowReq], [user, plannerDone, toolDone], 10);
-  assert.equal(afterTool.waitingSinceMs, 145000, 'server wait anchors to completed tool timestamp');
+  assert.equal(afterTool.waitingSinceMs, 145000, 'live wait anchors to completed tool timestamp');
 
   const streamingNext = { idx: 13, step_type: 15, status: 8, createdAtMs: 145050, generatingAtMs: 180050 };
   const duringStream = summarizeTurnQueue([priorReq, slowReq], [user, plannerDone, toolDone, streamingNext], 10);
   assert.deepEqual(duringStream.waits, [35, 35], 'streaming step exposes wait before gen_metadata commits');
-  assert.equal(duringStream.waitingSinceMs, null, 'streaming response is no longer waiting in queue');
+  assert.equal(duringStream.waitingSinceMs, null, 'streaming response is no longer waiting for the first token');
 
   const terminal = summarizeTurnQueue([priorReq, slowReq], [user, plannerDone], 10, [{ lastStepIndex: 11, reason: 4, executionId: '' }]);
   assert.equal(terminal.turnTerminal, true);
@@ -85,7 +85,7 @@ test('summarizeTurnQueue tracks per-turn waits, ignores active tools and prevent
   assert.deepEqual(terminal.waits, [35]);
 });
 
-test('third capsule shows server queue warnings with xN multiplier, respects toggle and yields to request errors', () => {
+test('third capsule shows first-token wait alerts with xN multiplier, respects toggle and yields to request errors', () => {
   const ui = createPresentation();
   const t0 = 200000;
   const liveQueue = { userStepIndex: 10, waits: [], waitingSinceMs: t0, hasPendingPlanner: false, turnTerminal: false };
@@ -98,23 +98,23 @@ test('third capsule shows server queue warnings with xN multiplier, respects tog
   const live1 = ui.alertView({ turnQueue: liveQueue }, { showQueueWarnings: true, queueWarnSec: 30 }, ui.dictionaries['zh-CN'], t0 + 35000, true);
   assert.equal(live1.mode, 'queue');
   assert.equal(live1.visible, true);
-  assert.equal(live1.label, '排队 35s');
-  assert.equal(live1.heading, '服务器排队');
+  assert.equal(live1.label, '等待 ~35s');
+  assert.equal(live1.heading, '首字等待');
   assert.equal(live1.queueCount, 1);
 
   // Second slow wait in the same turn -> x2 multiplier
   const multi = { ...liveQueue, waits: [32.4], waitingSinceMs: t0 };
   const live2 = ui.alertView({ turnQueue: multi }, { showQueueWarnings: true, queueWarnSec: 30 }, ui.dictionaries['zh-CN'], t0 + 40000, true);
-  assert.equal(live2.label, '排队×2 40s');
-  assert.equal(live2.heading, '服务器排队 ×2');
+  assert.equal(live2.label, '等待×2 ~40s');
+  assert.equal(live2.heading, '首字等待 ×2');
   assert.equal(live2.queueCount, 2);
   assert.match(live2.diagnostic, /32s, 40s\+/);
 
   // Turn finished with 2 slow waits -> keeps x2 without live seconds
   const finished = ui.alertView({ turnQueue: { userStepIndex: 10, waits: [31, 45], waitingSinceMs: null, hasPendingPlanner: false, turnTerminal: true } }, { showQueueWarnings: true, queueWarnSec: 30 }, ui.dictionaries.en, t0 + 999000, false);
   assert.equal(finished.mode, 'queue');
-  assert.equal(finished.label, 'Queue×2');
-  assert.equal(finished.heading, 'Server queue ×2');
+  assert.equal(finished.label, 'Wait×2');
+  assert.equal(finished.heading, 'First-token wait ×2');
 
   // Toggle off hides queue warning
   assert.equal(ui.alertView({ turnQueue: multi }, { showQueueWarnings: false, queueWarnSec: 30 }, ui.dictionaries.en, t0 + 40000, true).visible, false);
@@ -146,4 +146,35 @@ test('SQLite snapshot exposes turnQueue regardless of showTurnMetrics', t => {
   const snapOn = readConversationSnapshot(path, true);
   assert.deepEqual(snapOff.turnQueue.waits, [35]);
   assert.deepEqual(snapOn.turnQueue, snapOff.turnQueue);
+});
+
+test('a request TTFT already linked to a pending planner stops its live estimate', () => {
+  const steps = [
+    { idx: 10, step_type: 14, status: 3, createdAtMs: 100000 },
+    { idx: 11, step_type: 15, status: 2, createdAtMs: 100000 },
+  ];
+  const request = { lastStepIndex: 10, stepIndices: [11], generation: { ttft: 40 } };
+  const queue = summarizeTurnQueue([request], steps, 10);
+  assert.deepEqual(queue.waits, [40]);
+  assert.equal(queue.waitingSinceMs, null);
+});
+
+test('a planner explicitly linked only to an earlier turn supplies no current wait', () => {
+  const steps = [
+    { idx: 20, step_type: 14, status: 3, createdAtMs: 130000 },
+    { idx: 21, step_type: 15, status: 3, createdAtMs: 131000, generatingAtMs: 171000 },
+  ];
+  const oldRequest = { lastStepIndex: 10, stepIndices: [21], generation: { ttft: 40 } };
+  assert.deepEqual(summarizeTurnQueue([oldRequest], steps, 20).waits, []);
+  // A current request with no TTFT can still use its associated step estimate.
+  const current = { lastStepIndex: 20, stepIndices: [21], generation: {} };
+  assert.deepEqual(summarizeTurnQueue([oldRequest, current], steps, 20).waits, [40]);
+});
+
+test('tool creation alone cannot start a post-tool waiting clock', () => {
+  const steps = [
+    { idx: 10, step_type: 14, status: 3, createdAtMs: 100000 },
+    { idx: 11, step_type: 132, status: 3, createdAtMs: 110000 },
+  ];
+  assert.equal(summarizeTurnQueue([], steps, 10).waitingSinceMs, null);
 });

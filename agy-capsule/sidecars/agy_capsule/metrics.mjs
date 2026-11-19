@@ -39,14 +39,24 @@ export function summarizeTurnSpeed(requests, steps, userStepIndex) {
   };
 }
 
-// Per-turn server queue waits: recorded request TTFTs + live pre-first-token wait anchor.
-// Active local tools or streaming responses do NOT count as server queueing.
+// Reported TTFTs and local step-based estimates have different timing boundaries.
 const ACTIVE_STEP_STATUSES = new Set([1, 2, 8, 9, 11]);
 const validEpoch = value => Number.isFinite(value) && value > 0 ? value : null;
 
 export function summarizeTurnQueue(requests, steps, userStepIndex, executors = []) {
   if (!Number.isInteger(userStepIndex)) return null;
-  const scope = steps.filter(step => step.idx >= userStepIndex);
+  // An older request can create its response step after the next input.
+  const priorPlannerLinks = new Set();
+  const otherLinks = new Set();
+  for (const request of requests) {
+    const knownPrior = Number.isInteger(request.lastStepIndex) && request.lastStepIndex >= 0 && request.lastStepIndex < userStepIndex;
+    const links = knownPrior ? priorPlannerLinks : otherLinks;
+    for (const idx of request.stepIndices || []) {
+      if (idx > userStepIndex) links.add(idx);
+    }
+  }
+  const scope = steps.filter(step => step.idx >= userStepIndex &&
+    (step.step_type !== 15 || !priorPlannerLinks.has(step.idx) || otherLinks.has(step.idx)));
   const user = scope.find(step => step.idx === userStepIndex && step.step_type === 14);
   if (!user) return null;
 
@@ -85,7 +95,10 @@ export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [
   let waitingSinceMs = null;
   if (!turnTerminal && !hasActiveTool && !hasStreamingPlanner) {
     if (pendingPlanner) {
-      waitingSinceMs = validEpoch(pendingPlanner.createdAtMs);
+      // Status and timing records can arrive in different snapshots.
+      if (!coveredSteps.has(pendingPlanner.idx) && !validEpoch(pendingPlanner.generatingAtMs)) {
+        waitingSinceMs = validEpoch(pendingPlanner.createdAtMs);
+      }
     } else {
       const relevant = scope.filter(step => !(step.step_type === 14 && step.status === 11) && ![101, 17].includes(step.step_type));
       const last = relevant.at(-1);
@@ -93,7 +106,7 @@ export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [
         if (last.step_type === 14) {
           waitingSinceMs = validEpoch(last.createdAtMs);
         } else if (last.step_type !== 15) {
-          waitingSinceMs = validEpoch(last.recordedCompletedAtMs) || validEpoch(last.terminalAtMs) || validEpoch(last.completedAtMs) || validEpoch(last.createdAtMs);
+          waitingSinceMs = validEpoch(last.recordedCompletedAtMs) || validEpoch(last.terminalAtMs);
         } else if (last.status === 3) {
           waitingSinceMs = validEpoch(last.recordedCompletedAtMs) || validEpoch(last.terminalAtMs) || validEpoch(last.completedAtMs);
         }
