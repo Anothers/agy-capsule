@@ -12,9 +12,21 @@ import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
 import { summarizeTurnMetrics } from './turn_metrics.mjs';
 import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
+import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
 const presentation = createPresentation();
+const cdpNotice = createCdpNoticeManager({
+  getPrefs: () => settingsStore.read(),
+  getNotifyText: (shortcutState, prefs) => {
+    const lang = presentation.dictionaries[prefs?.settingsLanguage] ? prefs.settingsLanguage : 'zh-CN';
+    const t = presentation.dictionaries[lang] || presentation.dictionaries.en;
+    return {
+      title: t.cdpNotifyTitle,
+      body: shortcutState === 'missing' ? t.cdpNotifyBodyMissing : t.cdpNotifyBodyOk,
+    };
+  },
+});
 
 function conversationDirectories(dataDir) {
   if (dataDir) {
@@ -282,7 +294,7 @@ function resolveConversationDb(id, allowLatest) {
 
 async function makeEmptyContextResult() {
   return {
-    uiVersion: 105,
+    uiVersion: 106,
     turnSpeed: null,
     turnQueue: null,
     turnMetrics: null,
@@ -310,7 +322,7 @@ async function inspectConversation(convId, exact = false) {
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
   if (!snapshot) return await makeEmptyContextResult();
   return {
-    uiVersion: 105,
+    uiVersion: 106,
     ...snapshot,
     prefs,
     ...await fetchQuota(),
@@ -494,6 +506,7 @@ const PV_CARD_PREVIEW = {
     <span class="pv-pill">${PV_SVG.clock}<span>85%</span></span>
     <span class="pv-pill pv-pill-err">${PV_SVG.warn}<span>429</span></span>
   </div>`,
+  notifyCdpRestart: `<div class="pv-restart-note"><span data-i18n="cdpRestartPreview"></span></div>`,
   showQueueWarnings: `<div class="pv-queue-strip">
     <span class="pv-pill">${PV_SVG.db}<span>42%</span></span>
     <span class="pv-pill">${PV_SVG.clock}<span>85%</span></span>
@@ -1093,9 +1106,18 @@ const UI_HTML = `<!DOCTYPE html>
     .cdp-notice[hidden] { display: none; }
     .cdp-notice-title { font-weight: 600; color: var(--foreground, #ebebeb); margin-bottom: 3px; }
     .cdp-notice p { margin: 0 0 4px; }
+    .cdp-notice-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 5px 0; }
+    .cdp-notice-actions[hidden] { display: none; }
+    .cdp-fix-btn { padding: 3px 9px; border-radius: 5px; border: 1px solid color-mix(in srgb, #e0a030 55%, transparent); background: color-mix(in srgb, #e0a030 16%, var(--card, #222225)); color: var(--foreground, #ebebeb); font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer; }
+    .cdp-fix-btn:hover:not(:disabled) { background: color-mix(in srgb, #e0a030 24%, var(--card, #222225)); }
+    .cdp-fix-btn:disabled { opacity: .6; cursor: wait; }
+    .cdp-fix-status { font-size: 11.5px; color: var(--foreground, #ebebeb); }
+    .cdp-fix-status:empty { display: none; }
     .cdp-notice summary { cursor: pointer; color: var(--foreground, #ebebeb); }
     .cdp-notice ol { margin: 5px 0 0; padding-left: 18px; display: grid; gap: 4px; }
     .cdp-notice code { user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--foreground, #ebebeb) 8%, transparent); color: var(--foreground, #ebebeb); word-break: break-all; }
+    .pv-restart-note { font-size: 11.5px; color: var(--muted-foreground, #8e8e93); transition: opacity .18s ease; }
+    [data-setting-card="notifyCdpRestart"][data-checked="false"] .pv-restart-note { opacity: .4; }
     @media(pointer:coarse) { .pv-swatch { min-height: 40px; } }
   </style>
 </head>
@@ -1109,10 +1131,14 @@ const UI_HTML = `<!DOCTYPE html>
     </div>
   </div>
   <aside class="cdp-notice" id="cdp-notice" role="status" hidden>
-    <div class="cdp-notice-title" data-cdp-i18n="cdpTitle">底栏胶囊未启用</div>
-    <p data-cdp-i18n="cdpBody"></p>
+    <div class="cdp-notice-title" id="cdp-notice-title" data-cdp-i18n="cdpTitle">底栏胶囊未启用</div>
+    <p id="cdp-notice-body" data-cdp-i18n="cdpBody"></p>
+    <div class="cdp-notice-actions" id="cdp-notice-actions" hidden>
+      <button type="button" class="cdp-fix-btn" id="cdp-fix-btn" data-cdp-i18n="cdpFixShortcutBtn"></button>
+      <span class="cdp-fix-status" id="cdp-fix-status"></span>
+    </div>
     <details>
-      <summary data-cdp-i18n="cdpHow">设置方法</summary>
+      <summary id="cdp-notice-how" data-cdp-i18n="cdpHow">设置方法</summary>
       <ol>
         <li><span data-cdp-i18n="cdpScript"></span> <code>powershell -ExecutionPolicy Bypass -File scripts\\enable-cdp.ps1</code></li>
         <li><span data-cdp-i18n="cdpManual"></span> <code>--remote-debugging-port=0</code></li>
@@ -1241,6 +1267,7 @@ const UI_HTML = `<!DOCTYPE html>
     </div>
     ${renderCheckCard({ id: 'setting-context-warnings', key: 'showContextWarnings', checked: true })}
     ${renderCheckCard({ id: 'setting-request-errors', key: 'showRequestErrors', checked: true })}
+    ${renderCheckCard({ id: 'setting-notify-cdp-restart', key: 'notifyCdpRestart', checked: DEFAULT_SETTINGS.notifyCdpRestart })}
     <div class="setting-card setting-speed-pair metric-setting" data-setting-card="showSpeed" data-checked="true" data-speed-fx="false">
       <div class="setting-head setting-pair-head">
         <div class="setting-pair-item">
@@ -1618,7 +1645,7 @@ const UI_HTML = `<!DOCTYPE html>
         const res = await fetch('/api/context' + qStr, { method: 'GET', headers });
         const d = await res.json();
         if (d.error) return;
-        if (d.uiVersion && d.uiVersion !== 105) {
+        if (d.uiVersion && d.uiVersion !== 106) {
           window.location.reload();
           return;
         }
@@ -1683,12 +1710,61 @@ const UI_HTML = `<!DOCTYPE html>
     }
 
     // Shown on both tabs; text follows the open tab's language.
+    let fixingShortcut = false;
+    let shortcutFixMessageKey = '';
+    const cdpFixBtn = document.getElementById('cdp-fix-btn');
+    if (cdpFixBtn) {
+      cdpFixBtn.addEventListener('click', async () => {
+        if (fixingShortcut) return;
+        fixingShortcut = true;
+        shortcutFixMessageKey = '';
+        renderCdpNotice();
+        try {
+          const api = apiOptions('/api/fix-cdp-shortcut');
+          const res = await fetch(api.url, { method: 'POST', headers: api.headers });
+          const result = await res.json();
+          if (lastData?.deckCdpInfo && result?.shortcutState) {
+            lastData.deckCdpInfo.shortcutState = result.shortcutState;
+            lastData.deckCdpInfo.canFixShortcut = result.shortcutState === 'missing';
+          }
+          shortcutFixMessageKey = result?.ok ? 'cdpFixShortcutDone' : 'cdpFixShortcutAdmin';
+        } catch {
+          shortcutFixMessageKey = 'cdpFixShortcutAdmin';
+        } finally {
+          fixingShortcut = false;
+          renderCdpNotice();
+        }
+      });
+    }
     function renderCdpNotice() {
       const notice = document.getElementById('cdp-notice');
       notice.hidden = !['missing', 'unreachable'].includes(lastData?.deckCdp);
       if (notice.hidden) return;
       const dict = sidebarView === 'settings' ? settingsLabels : labels;
       notice.lang = sidebarView === 'settings' ? prefs.settingsLanguage : document.body.dataset.language;
+      const info = lastData?.deckCdpInfo || {};
+      const hadBefore = info.hadBefore === true || lastData?.deckCdp === 'unreachable';
+      const titleEl = document.getElementById('cdp-notice-title');
+      const bodyEl = document.getElementById('cdp-notice-body');
+      const howEl = document.getElementById('cdp-notice-how');
+      if (titleEl) titleEl.dataset.cdpI18n = hadBefore ? 'cdpRestartTitle' : 'cdpTitle';
+      if (bodyEl) {
+        bodyEl.dataset.cdpI18n = !hadBefore ? 'cdpBody'
+          : info.shortcutState === 'ok' ? 'cdpRestartBodyShortcutOk'
+          : info.shortcutState === 'missing' ? 'cdpRestartBodyShortcutMissing'
+          : 'cdpRestartBodyGeneric';
+      }
+      if (howEl) howEl.dataset.cdpI18n = hadBefore ? 'cdpRestartHow' : 'cdpHow';
+      const actionsEl = document.getElementById('cdp-notice-actions');
+      const statusEl = document.getElementById('cdp-fix-status');
+      const showBtn = info.canFixShortcut === true;
+      if (actionsEl) actionsEl.hidden = !showBtn && !shortcutFixMessageKey;
+      if (cdpFixBtn) {
+        cdpFixBtn.hidden = !showBtn;
+        cdpFixBtn.disabled = fixingShortcut;
+        cdpFixBtn.dataset.cdpI18n = fixingShortcut ? 'cdpFixShortcutBusy' : 'cdpFixShortcutBtn';
+      }
+      if (statusEl) statusEl.textContent = shortcutFixMessageKey ? (dict?.[shortcutFixMessageKey] || '') : '';
       for (const node of notice.querySelectorAll('[data-cdp-i18n]')) {
         const value = dict?.[node.dataset.cdpI18n];
         if (value && node.textContent !== value) node.textContent = value;
@@ -1731,17 +1807,24 @@ if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
   const app = new SidecarApp();
   app.page('/', () => UI_HTML);
   app.page('/ui.html', () => UI_HTML);
-  app.api('/api/context', async (data) => ({
-    ...await inspectConversation(data?.conversationId || app.config.conversationId),
-    deckCdp: deckInjector?.status?.() ?? 'unknown',
-  }), 'GET');
+  app.api('/api/context', async (data) => {
+    const deckCdp = deckInjector?.status?.() ?? 'unknown';
+    return {
+      ...await inspectConversation(data?.conversationId || app.config.conversationId),
+      deckCdp,
+      deckCdpInfo: cdpNotice.info(deckCdp),
+    };
+  }, 'GET');
   app.api('/api/settings', () => settingsStore.read(), 'GET');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
+  app.api('/api/fix-cdp-shortcut', () => cdpNotice.fixShortcuts(), 'POST');
   app.run();
   installAsyncHostRoutes(app);
 }
 if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SIDECAR_WEB_PORT)) {
-  const injector = deckInjector = startDeckInjector(inspectConversation);
+  const injector = deckInjector = startDeckInjector(inspectConversation, {
+    onStatus: state => cdpNotice.observe(state),
+  });
   let stopping = false;
   const shutdown = async (reason) => {
     if (stopping) return;

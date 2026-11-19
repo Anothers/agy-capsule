@@ -1476,7 +1476,9 @@ export function startDeckInjector(inspect, options = {}) {
     if (busy || stopped) return;
     busy = true;
     try {
-      for (const target of await pages()) {
+      const list = await pages();
+      options.onStatus?.(cdpState);
+      for (const target of list) {
         if (stopped) break;
         try {
           const entry = sockets.get(target.id) || await connect(target);

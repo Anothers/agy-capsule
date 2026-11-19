@@ -107,6 +107,9 @@ The footer capsule attaches under the input box through Antigravity's debugging 
 
 Afterwards, **quit Antigravity completely** and open it from a shortcut. These launches skip the shortcut and won't carry the switch: an `antigravity://` link or Explorer's "Open with Antigravity" when no Antigravity window is open; Antigravity restarting itself after an auto-update; an update installer recreating the shortcuts (run the script again).
 
+> **The capsule disappeared after an Antigravity update — do I need to update agy-capsule?**
+> **No.** Antigravity's auto-update restarts itself without going through your shortcut, so the debugging port isn't open for that launch. Just **quit Antigravity completely and reopen it from your shortcut** to restore the capsule. Once the capsule has worked on your machine before, agy-capsule recognizes this automatically: the sidebar banner clarifies no plugin update is needed (on Windows it also checks whether the installer wiped your shortcut switch and offers a one-click restore button), and an optional one-shot desktop notification alerts you once per launch (on by default in Settings).
+
 The port only listens on this computer. While it's open, other programs on this computer can also control Antigravity windows through it; older Antigravity versions opened it by default anyway.
 
 ## Metric definitions
