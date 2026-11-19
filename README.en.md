@@ -77,7 +77,7 @@ Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<co
 > **macOS users**: follow the [macOS installation guide](./docs/macos-cdp.md#english). If you don't use Terminal, send this to Antigravity and let it install for you:
 >
 > ```text
-> Please read https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md and install agy-capsule for me as described in its "Let Antigravity install it for you" section.
+> Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md
 > ```
 
 1. Download or pull this repository, then run the appropriate script:

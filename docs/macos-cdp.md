@@ -6,19 +6,23 @@
 
 本指南包含在 Mac 上使用 agy-capsule 的全部步骤：下载、安装插件、让底栏胶囊显示出来、启用插件，以及之后的更新、卸载和排查。
 
-> **最省事的办法：让 Antigravity 替你装**
->
-> 如果你不常用终端，可以在 Antigravity 里新开一个对话，把下面这段话原样发给它。它会帮你完成第 1～3 步。
+> **不熟悉终端？** 在 Antigravity 里新开一个对话，发这句话给它：
 >
 > ```text
-> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule：
-> 1. 如果我电脑上已经有 agy-capsule 文件夹（通常在「下载」里），就用它；没有的话，把仓库 git clone 到 ~/agy-capsule。没有 git 的话，下载 main 分支的 zip 并解压。
-> 2. 在这个文件夹里运行 sh install.sh，确认输出里有「已安装/更新 agy-capsule」。
-> 3. 用指南第 3 步「方法一」的 osacompile 命令，在「应用程序」文件夹里做一个 Antigravity-CDP 启动图标。不要修改原版 Antigravity 应用。
-> 4. 不要修改插件文件，也不要改 Antigravity 的设置。最后用中文告诉我还需要手动做什么。
+> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule。
 > ```
 >
-> 它做完后，你只需要自己完成[第 4 步](#第-4-步启用插件)。AI 没法替你重启 Antigravity，因为它自己就运行在 Antigravity 里。
+> 它会替你完成第 1～3 步。之后你只需要自己完成[第 4 步](#第-4-步启用插件)。AI 没法替你重启 Antigravity，因为它自己就运行在 Antigravity 里。
+
+### 给 AI 助手的说明
+
+如果你是替用户安装的 AI 助手，请按以下要求操作：
+
+1. 如果用户电脑上已有 agy-capsule 文件夹（通常在「下载」里），就用它；没有的话，把仓库 `git clone` 到 `~/agy-capsule`。没有 git 的话，下载 main 分支的 zip 并解压。
+2. 在这个文件夹里运行 `sh install.sh`，确认输出里有「已安装/更新 agy-capsule」。
+3. 运行第 3 步「方法一」的 `osacompile` 命令，生成 `Antigravity-CDP` 启动图标。
+4. 不要修改插件文件、原版 `Antigravity.app` 和 Antigravity 的设置，也不要自行安装其他软件。
+5. 不要退出或重启 Antigravity。完成后，用用户的语言告诉他接下来要自己做第 4 步。如果哪一步失败了，就把报错原样告诉用户。
 
 ### 第 1 步：下载
 
@@ -126,19 +130,23 @@ osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Ant
 
 This guide covers everything needed to use agy-capsule on a Mac: downloading, installing the plugin, showing the footer capsule, enabling the plugin, and later updating, uninstalling and troubleshooting.
 
-> **Easiest: let Antigravity install it for you**
->
-> If you don't use Terminal much, start a new conversation in Antigravity and send it the message below as-is. It will handle steps 1–3.
+> **Not comfortable with Terminal?** Start a new conversation in Antigravity and send it this:
 >
 > ```text
-> Please install agy-capsule following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md:
-> 1. If I already have an agy-capsule folder (usually in Downloads), use it. Otherwise git clone the repository to ~/agy-capsule, or download and unzip the main branch zip if git isn't available.
-> 2. In that folder, run sh install.sh and confirm the output says "Installed/updated agy-capsule".
-> 3. Use the osacompile command from Step 3, Option 1 of the guide to create an Antigravity-CDP launcher in the Applications folder. Don't modify the original Antigravity app.
-> 4. Don't modify the plugin files or Antigravity's settings. Finally, tell me what I still need to do by hand.
+> Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md
 > ```
 >
-> When it's done, you only need to do [Step 4](#step-4-enable-the-plugin) yourself. The AI can't restart Antigravity for you, because it runs inside Antigravity.
+> It will handle steps 1–3. Then you only need to do [Step 4](#step-4-enable-the-plugin) yourself. The AI can't restart Antigravity for you, because it runs inside Antigravity.
+
+### For AI assistants
+
+If you are an AI assistant installing this for the user:
+
+1. If the user already has an agy-capsule folder (usually in Downloads), use it. Otherwise `git clone` the repository to `~/agy-capsule`, or download and unzip the main branch zip if git isn't available.
+2. In that folder, run `sh install.sh` and confirm the output says "Installed/updated agy-capsule".
+3. Run the `osacompile` command from Step 3, Option 1 to create the `Antigravity-CDP` launcher.
+4. Don't modify the plugin files, the original `Antigravity.app` or Antigravity's settings, and don't install any other software.
+5. Don't quit or restart Antigravity. When you're done, tell the user, in their language, to do Step 4 themselves. If any step fails, show the user the error as-is.
 
 ### Step 1: Download
 
