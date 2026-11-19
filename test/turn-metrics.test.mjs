@@ -122,7 +122,7 @@ test('turn display keeps scopes separate, exposes missing usage and updates elap
   const completed = { ...data, state: 'completed', duration: 20 };
   assert.equal(initial.requests, '1');
   assert.equal(ui.turnMetricsText(completed, ui.dictionaries.en, 999999).elapsed, '20s');
-  for (const [sec, expected] of [[11.9, '11s'], [61.4, '1m 1s'], [71, '1m 11s'], [671, '11m 11s'], [3665, '1h 1m'], [4265, '1h 11m']]) {
+  for (const [sec, expected] of [[1, '1s'], [40, '40s'], [59.9, '59s'], [60, '1m'], [100, '1m40s'], [599, '9m59s'], [600, '10m'], [3599, '59m'], [3600, '1h'], [6000, '1h40m'], [35940, '9h59m'], [36000, '10h']]) {
     assert.equal(ui.turnMetricsText({ ...completed, duration: sec }, ui.dictionaries.en, 999999).elapsed, expected);
   }
   assert.equal(ui.turnMetricsText({ ...completed, requestCount: 4 }, ui.dictionaries.en, 999999).requests, '4');

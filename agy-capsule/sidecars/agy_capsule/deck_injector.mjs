@@ -81,11 +81,11 @@ function pageMount(d) {
   }
 
   // Upgrade or initialize DOM structure in-place
-  if (root.getAttribute('data-deck-ver') !== '107') {
+  if (root.getAttribute('data-deck-ver') !== '110') {
     release(root);
     root._pinnedGroup = null;
     root.removeAttribute('data-pinned');
-    root.setAttribute('data-deck-ver', '107');
+    root.setAttribute('data-deck-ver', '110');
     root._speedActivity = null;
     root._motionPrev = null;
     root.style.cssText = [
@@ -153,6 +153,12 @@ function pageMount(d) {
         #deck-metrics-strip [data-el="grpError"] .dk-pill,
         #deck-metrics-strip [data-el="grpError"] .dk-val,
         #deck-metrics-strip [data-el="grpError"] .dk-svg { color: #e06c75; }
+        #deck-metrics-strip [data-el="grpError"][data-alert-mode="queue"] .dk-pill,
+        #deck-metrics-strip [data-el="grpError"][data-alert-mode="queue"] .dk-val,
+        #deck-metrics-strip [data-el="grpError"][data-alert-mode="queue"] .dk-svg { color: light-dark(#d97706, #d4940a); }
+        #deck-metrics-strip [data-el="grpError"] [data-alert-icon] { display: none; }
+        #deck-metrics-strip [data-el="grpError"][data-alert-mode="error"] [data-alert-icon="error"],
+        #deck-metrics-strip [data-el="grpError"][data-alert-mode="queue"] [data-alert-icon="queue"] { display: inline-block; }
         #deck-metrics-strip .dk-error-pop { width: 240px; }
         #deck-metrics-strip .dk-error-heading { font-weight: 600; margin-bottom: 8px; color: var(--foreground, #ddd); }
         #deck-metrics-strip .dk-error-diagnostic { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border, #444); white-space: pre-wrap; }
@@ -182,7 +188,7 @@ function pageMount(d) {
           #deck-metrics-strip .dk-speed[data-motion="active"] .dk-speed-dot { animation: none; }
           #deck-metrics-strip .dk-speed[data-motion] { transition: none; }
           #deck-metrics-strip [data-k="pillCtx"], #deck-metrics-strip [data-el="ctxIconSvg"],
-          #deck-metrics-strip .dk-cache-pct, #deck-metrics-strip .dk-cache-k, #deck-metrics-strip .dk-q-group, #deck-metrics-strip .dk-q-active { transition: none; }
+          #deck-metrics-strip .dk-cache-pct, #deck-metrics-strip .dk-cache-k, #deck-metrics-strip .dk-cache-meter > span, #deck-metrics-strip .dk-q-group, #deck-metrics-strip .dk-q-active { transition: none; }
         }
         #deck-metrics-strip .dk-speed[hidden],
         #deck-metrics-strip.dk-hide-speed .dk-speed { display: none; }
@@ -272,7 +278,7 @@ function pageMount(d) {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 12px;
+          gap: 8px;
           font-size: 13.5px;
           line-height: 1.35;
           padding-bottom: 5px;
@@ -292,6 +298,31 @@ function pageMount(d) {
           width: 10px;
           height: 10px;
           flex-shrink: 0;
+        }
+        #deck-metrics-strip[data-cache-indicator="ring"] .dk-cache-left > .dk-dot {
+          width: 14px;
+          height: 14px;
+        }
+        #deck-metrics-strip .dk-cache-left > .dk-dot:empty {
+          display: none !important;
+        }
+        #deck-metrics-strip .dk-cache-meter {
+          flex: 1;
+          min-width: 32px;
+          height: 4px;
+          border-radius: 999px;
+          background: rgba(142, 142, 147, 0.24);
+          overflow: hidden;
+        }
+        #deck-metrics-strip .dk-cache-meter[hidden] {
+          display: none;
+        }
+        #deck-metrics-strip .dk-cache-meter > span {
+          display: block;
+          height: 100%;
+          width: 0%;
+          border-radius: inherit;
+          transition: width 0.35s linear, background-color 0.25s ease;
         }
         #deck-metrics-strip .dk-cache-pct {
           margin-left: 0;
@@ -550,6 +581,7 @@ function pageMount(d) {
           <div class="dk-panel-content">
           <div class="dk-cache-bar" data-el="rowCacheHit">
             <div class="dk-cache-left"><span data-i18n="cache">Cache</span><span class="dk-cache-pct" data-k="valCacheHit" data-el="valCacheHitEl">0%</span><span class="dk-dot" data-el="dotCached" style="display:inline-flex;align-items:center;justify-content:center;background:transparent"></span></div>
+            <span class="dk-cache-meter" data-el="cacheMeter" hidden><span data-el="cacheMeterFill"></span></span>
             <div class="dk-cache-k" data-k="valCacheHitK"></div>
           </div>
           <div class="dk-summary-row">
@@ -602,13 +634,14 @@ function pageMount(d) {
         </button>
         <div class="dk-pop dk-quota-pop" data-el="quotaPop"></div>
       </div>
-      <div class="dk-grp" data-el="grpError" hidden>
+      <div class="dk-grp" data-el="grpError" data-alert-mode="none" hidden>
         <button type="button" class="dk-pill" aria-expanded="false">
-          <svg class="dk-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+          <svg class="dk-svg" data-alert-icon="error" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="17" r=".6" fill="currentColor"/></svg>
+          <svg class="dk-svg" data-alert-icon="queue" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
           <span class="dk-val" data-request-error="label"></span>
         </button>
         <div class="dk-pop dk-error-pop">
-          <div class="dk-error-heading" data-request-error="label"></div>
+          <div class="dk-error-heading" data-request-error="heading"></div>
           <div data-request-error="detail"></div>
           <div class="dk-error-diagnostic" data-request-error="diagnostic"></div>
         </div>
@@ -753,7 +786,9 @@ function pageMount(d) {
   }
   const labels = presentation.apply(root, d.prefs);
   presentation.renderContextTooltips(root, d.contextData, labels);
-  const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError }, d.prefs, labels);
+  const now = Date.now();
+  const cancelBtnVisible = !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
+  const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError, turnQueue: d.turnQueue }, d.prefs, labels, now, cancelBtnVisible || !!d.turnQueue?.hasPendingPlanner);
   root.querySelector('[data-el="grpQuota"]').hidden = d.cloudPaygo;
   if (root._pinnedGroup?.hidden) {
     root._pinnedGroup.removeAttribute('data-pinned');
@@ -771,10 +806,9 @@ function pageMount(d) {
   const tps = d.turnSpeed?.generation?.tps;
   // Turn scope comes from persisted USER_INPUT, not cancel-button appearance.
   // Activity and the last completed request's speed are independent signals.
-  const now = Date.now();
   const turnKey = location.pathname + ':' + (d.turnSpeed?.userStepIndex ?? 'none');
   const requestIndex = d.turnSpeed?.generation?.requestIndex ?? null;
-  const running = !!d.turnSpeed?.hasActiveStep || !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
+  const running = !!d.turnSpeed?.hasActiveStep || cancelBtnVisible;
   const hasSpeed = Number.isFinite(tps) && tps >= 0;
   const motionEnabled = d.prefs?.speedAnimation === true;
   pillSpeed.hidden = d.prefs?.showSpeed === false || (!d.turnSpeed && !running);
@@ -1162,6 +1196,15 @@ function pageMount(d) {
   if (dotCached && dotCached.innerHTML !== d.cacheIconSvg) {
     dotCached.innerHTML = d.cacheIconSvg;
   }
+  const cacheMeter = root.querySelector('[data-el="cacheMeter"]');
+  const cacheMeterFill = root.querySelector('[data-el="cacheMeterFill"]');
+  if (cacheMeter && cacheMeterFill) {
+    cacheMeter.hidden = d.cacheIndicator !== 'bar';
+    if (!cacheMeter.hidden) {
+      cacheMeterFill.style.width = d.cacheProgressPct || '0%';
+      cacheMeterFill.style.backgroundColor = d.cacheProgressColor || '';
+    }
+  }
   const valCacheHitEl = root.querySelector('[data-el="valCacheHitEl"]');
   if (valCacheHitEl) {
     valCacheHitEl.style.color = d.cacheValColor;
@@ -1219,7 +1262,7 @@ function pageMount(d) {
 function toView(d) {
   const ctx = contextBreakdown(d);
   const cache = cacheView(d, d.prefs);
-  const { iconSvg: cacheIconSvg, valColor: cacheValColor, valDeco: cacheValDeco, valOp: cacheValOp, text: valCacheHit, countdown: valCacheHitK, ctxIconColor } = cache;
+  const { iconSvg: cacheIconSvg, valColor: cacheValColor, valDeco: cacheValDeco, valOp: cacheValOp, text: valCacheHit, countdown: valCacheHitK, ctxIconColor, indicator: cacheIndicator, progressPct: cacheProgressPct, progressColor: cacheProgressColor } = cache;
 
   const quotaGroups = quotaView(d.quotaGroups, d.prefs);
   const quotaSummaryGroups = quotaGroups.map(({ title, rawName, modelsInGroup, q5h, qWk }) => ({ title, rawName, modelsInGroup, q5h, qWk }));
@@ -1246,6 +1289,7 @@ function toView(d) {
     prefs: d.prefs || { language: 'en' },
     generation: d.generation || null,
     turnSpeed: d.turnSpeed || null,
+    turnQueue: d.turnQueue || null,
     turnMetrics: d.turnMetrics || null,
     requestError: d.requestError || { kind: 'none' },
     cloudPaygo: d.cloudPaygo === true,
@@ -1259,6 +1303,9 @@ function toView(d) {
     segOutW: ctx.segOutW,
     segThinkW: ctx.segThinkW,
     segTurn0W: ctx.segTurn0W,
+    cacheIndicator,
+    cacheProgressPct,
+    cacheProgressColor,
     cacheIconSvg,
     cacheValColor,
     cacheValDeco,

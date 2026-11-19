@@ -43,7 +43,12 @@ export function createTurnPresentation(formatTokens) {
       if (!Number.isFinite(value) || value < 0) return '—';
       const seconds = Math.floor(value);
       if (seconds < 60) return seconds + 's';
-      return seconds < 3600 ? `${Math.floor(seconds / 60)}m ${seconds % 60}s` : `${Math.floor(seconds / 3600)}h ${Math.floor(seconds % 3600 / 60)}m`;
+      const minutes = Math.floor(seconds / 60);
+      if (minutes < 10) return seconds % 60 ? `${minutes}m${seconds % 60}s` : `${minutes}m`;
+      if (minutes < 60) return `${minutes}m`;
+      const hours = Math.floor(minutes / 60);
+      const remMin = minutes % 60;
+      return hours < 10 && remMin ? `${hours}h${remMin}m` : `${hours}h`;
     };
     const elapsed = durationText(rawElapsed);
     const reqCount = Number.isFinite(data.requestCount) ? data.requestCount : null;

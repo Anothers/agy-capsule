@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { startDeckInjector } from './deck_injector.mjs';
 import { createSettingsStore, DEFAULT_SETTINGS } from './settings.mjs';
 import { createPresentation, getPresentationScript } from './ui.mjs';
-import { summarizeGeneration, summarizeTurnSpeed } from './metrics.mjs';
+import { summarizeGeneration, summarizeTurnSpeed, summarizeTurnQueue } from './metrics.mjs';
 import { classifyRequestError } from './errors.mjs';
 import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
@@ -282,8 +282,9 @@ function resolveConversationDb(id, allowLatest) {
 
 async function makeEmptyContextResult() {
   return {
-    uiVersion: 99,
+    uiVersion: 105,
     turnSpeed: null,
+    turnQueue: null,
     turnMetrics: null,
     requestError: classifyRequestError(),
     generation: summarizeGeneration(),
@@ -309,7 +310,7 @@ async function inspectConversation(convId, exact = false) {
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
   if (!snapshot) return await makeEmptyContextResult();
   return {
-    uiVersion: 99,
+    uiVersion: 105,
     ...snapshot,
     prefs,
     ...await fetchQuota(),
@@ -339,23 +340,21 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
         const fields = parsePbMap(Buffer.from(step.metadata || []));
         const stamp = fields.get(7)?.[0] || fields.get(8)?.[0];
         const time = stamp ? parsePbMap(stamp) : new Map();
-        const speedStep = {
-          idx: step.idx, step_type: step.step_type, status: step.status,
-          completedAtMs: (time.get(1)?.[0] || 0) * 1000 + (time.get(2)?.[0] || 0) / 1e6,
-        };
-        if (!includeTurnMetrics) return speedStep;
         const epoch = value => { const parts = parsePbMap(value || Buffer.alloc(0)); return parts.has(1) ? parts.get(1)[0] * 1000 + (parts.get(2)?.[0] || 0) / 1e6 : null; };
         const transitions = (parsePbMap(fields.get(26)?.[0] || Buffer.alloc(0)).get(1) || []).map(value => parsePbMap(value));
+        const generating = transitions.filter(item => item.get(1)?.[0] === 8).map(item => epoch(item.get(2)?.[0])).filter(value => value !== null);
         const terminal = transitions.filter(item => [3, 6, 7, 12].includes(item.get(1)?.[0])).map(item => epoch(item.get(2)?.[0])).filter(value => value !== null);
         return {
-          ...speedStep,
+          idx: step.idx, step_type: step.step_type, status: step.status,
+          completedAtMs: (time.get(1)?.[0] || 0) * 1000 + (time.get(2)?.[0] || 0) / 1e6,
           recordedCompletedAtMs: epoch(fields.get(8)?.[0]),
           createdAtMs: epoch(fields.get(1)?.[0]),
+          generatingAtMs: generating.length ? Math.min(...generating) : null,
           terminalAtMs: terminal.length ? Math.max(...terminal) : null,
           executionId: fields.get(12)?.[0]?.toString('utf8') || '',
         };
       });
-      if (metricsUserStepIndex !== null && db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='executor_metadata'").get()) {
+      if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='executor_metadata'").get()) {
         executors = db.prepare('SELECT data FROM executor_metadata ORDER BY idx').all().map(row => {
           const fields = parsePbMap(Buffer.from(row.data || []));
           return { reason: fields.get(1)?.[0] || 0, lastStepIndex: fields.size ? (fields.get(3)?.[0] ?? 0) : -1, executionId: fields.get(9)?.[0]?.toString('utf8') || '' };
@@ -447,6 +446,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
 
   return {
     turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
+    turnQueue: summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors),
     turnMetrics: includeTurnMetrics ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
     requestError: latestRequestError,
     generation: summarizeGeneration(latestGeneration),
@@ -466,6 +466,7 @@ const PV_SVG = {
   clock: '<svg class="pv-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>',
   cal: '<svg class="pv-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
   warn: '<svg class="pv-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="9"/><path d="M12 7v6"/><circle cx="12" cy="17" r=".8" fill="currentColor"/></svg>',
+  check: '<svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><polyline points="2 6.5 4.8 9.2 10 3"/></svg>',
   ring: '<svg width="13" height="13" viewBox="0 0 18 18" style="transform:rotate(-90deg);flex-shrink:0"><circle cx="9" cy="9" r="6.5" fill="none" stroke="rgba(142,142,147,0.28)" stroke-width="2.4"/><circle cx="9" cy="9" r="6.5" fill="none" stroke="#4ea84e" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="40.84" stroke-dashoffset="6.1"/></svg>',
 };
 
@@ -479,9 +480,9 @@ const PV_CARD_PREVIEW = {
     <span class="pv-pill pv-hq-pill"><span class="pv-hq-zero">${PV_SVG.clock}<span>0%</span></span><span class="pv-hq-keep">${PV_SVG.cal}<span>85%</span></span></span>
   </div>`,
   showCacheWarnings: `<div class="pv-cache-warn">
-    <span class="pv-pill pv-ca-1">${PV_SVG.db}<span>&lt;3m</span></span>
-    <span class="pv-pill pv-ca-2">${PV_SVG.db}<span>3m+</span></span>
-    <span class="pv-pill pv-ca-3">${PV_SVG.db}<span>4m+</span></span>
+    <span class="pv-pill pv-ca-1">${PV_SVG.db}<span data-cache-pv="fresh">&lt;3m</span></span>
+    <span class="pv-pill pv-ca-2">${PV_SVG.db}<span data-cache-pv="warn">3m+</span></span>
+    <span class="pv-pill pv-ca-3">${PV_SVG.db}<span data-cache-pv="cold">4m+</span></span>
   </div>`,
   showContextWarnings: `<div class="pv-ctx-warn">
     <span class="pv-pill pv-cw-1">${PV_SVG.db}<span class="pv-cw-val">40%</span></span>
@@ -492,6 +493,11 @@ const PV_CARD_PREVIEW = {
     <span class="pv-pill">${PV_SVG.db}<span>42%</span></span>
     <span class="pv-pill">${PV_SVG.clock}<span>85%</span></span>
     <span class="pv-pill pv-pill-err">${PV_SVG.warn}<span>429</span></span>
+  </div>`,
+  showQueueWarnings: `<div class="pv-queue-strip">
+    <span class="pv-pill">${PV_SVG.db}<span>42%</span></span>
+    <span class="pv-pill">${PV_SVG.clock}<span>85%</span></span>
+    <span class="pv-pill pv-pill-queue">${PV_SVG.clock}<span data-queue-pv>×2 30s</span></span>
   </div>`,
   showRequestMetrics: `<div class="pv-req-line">
     <div class="pv-pill pv-req-pill"><span>TTFT 1.0s–3.0s</span><span><b>100.0 tok/s</b></span></div>
@@ -605,7 +611,7 @@ const UI_HTML = `<!DOCTYPE html>
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 12px;
+      gap: 8px;
       font-size: 13.5px;
       line-height: 1.35;
       padding-bottom: var(--agy-section-gap, 6px);
@@ -625,6 +631,27 @@ const UI_HTML = `<!DOCTYPE html>
       width: 10px;
       height: 10px;
       flex-shrink: 0;
+    }
+    body[data-cache-indicator="ring"] .cache-left > .dot {
+      width: 14px;
+      height: 14px;
+    }
+    .cache-left > .dot:empty { display: none !important; }
+    .cache-meter {
+      flex: 1;
+      min-width: 32px;
+      height: 4px;
+      border-radius: 999px;
+      background: rgba(142, 142, 147, 0.24);
+      overflow: hidden;
+    }
+    .cache-meter[hidden] { display: none; }
+    .cache-meter > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      border-radius: inherit;
+      transition: width 0.35s linear, background-color 0.25s ease;
     }
     .cache-pct {
       margin-left: 0;
@@ -922,6 +949,17 @@ const UI_HTML = `<!DOCTYPE html>
     .pv-hq-zero { margin-right: 6px; color: #ef4444; font-weight: 600; }
     [data-setting-card="hideUnavailableQuota"][data-checked="true"] .pv-hq-miss { max-width: 0; opacity: 0; margin-right: 0; }
     /* Cache expiry alert: unchecked all neutral, checked 3m+ yellow icon, 4m+ red icon */
+    .setting-thresholds { display: inline-flex; align-items: center; gap: 5px; min-width: 0; flex-shrink: 0; transition: opacity .18s ease; }
+    .setting-threshold-card[data-checked="false"] .setting-thresholds { opacity: .42; pointer-events: none; }
+    .setting-num { display: inline-flex; align-items: center; gap: 3px; height: 21px; padding: 0 5px; border-radius: 5px; background: color-mix(in srgb, var(--foreground, #ebebeb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--foreground, #ebebeb) 12%, transparent); font-size: 11.5px; color: var(--muted-foreground, #8e8e93); font-variant-numeric: tabular-nums; transition: border-color .15s ease, background .15s ease; }
+    .setting-num:focus-within { border-color: #388bfd; background: color-mix(in srgb, var(--foreground, #ebebeb) 9%, var(--card, #222225)); }
+    .setting-num-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+    .setting-num-warn { background: #d4940a; }
+    .setting-num-cold { background: #e06c75; }
+    .setting-num input[type="number"] { width: 26px; padding: 0; border: 0; background: transparent; color: var(--foreground, #ebebeb); font: inherit; text-align: right; outline: none; appearance: textfield; -moz-appearance: textfield; }
+    .setting-num input[type="number"]::-webkit-inner-spin-button,
+    .setting-num input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+    .setting-num-unit { opacity: .75; }
     .pv-cache-warn { display: flex; align-items: center; gap: 6px; }
     .pv-cache-warn .pv-pill { flex: 0 0 auto; }
     .pv-cache-warn .pv-svg { transition: color .18s ease; }
@@ -934,10 +972,12 @@ const UI_HTML = `<!DOCTYPE html>
     [data-setting-card="showContextWarnings"][data-checked="true"] .pv-cw-2 .pv-cw-val { color: #d4940a; font-weight: 600; }
     [data-setting-card="showContextWarnings"][data-checked="true"] .pv-cw-3 .pv-cw-val { color: #e06c75; font-weight: 600; }
     /* Request failure capsule: unchecked hides 3rd error pill, checked shows it */
-    .pv-err-strip { display: flex; align-items: center; gap: 6px; }
-    .pv-err-strip .pv-pill { flex: 0 0 auto; }
+    .pv-err-strip, .pv-queue-strip { display: flex; align-items: center; gap: 6px; }
+    .pv-err-strip .pv-pill, .pv-queue-strip .pv-pill { flex: 0 0 auto; }
     .pv-pill-err { color: #e06c75; background: rgba(224,108,117,.14); font-weight: 600; max-width: 120px; opacity: 1; overflow: hidden; transition: max-width .22s ease, opacity .18s ease, padding .22s ease; }
     [data-setting-card="showRequestErrors"][data-checked="false"] .pv-pill-err { max-width: 0; opacity: 0; padding-left: 0; padding-right: 0; }
+    .pv-pill-queue { color: light-dark(#d97706, #d4940a); background: rgba(212,148,10,.14); font-weight: 600; max-width: 140px; opacity: 1; overflow: hidden; transition: max-width .22s ease, opacity .18s ease, padding .22s ease; }
+    [data-setting-card="showQueueWarnings"][data-checked="false"] .pv-pill-queue { max-width: 0; opacity: 0; padding-left: 0; padding-right: 0; }
     .pv-req-line { display: flex; }
     .pv-req-pill { flex: 1; display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 4px 8px; transition: opacity .18s ease; }
     .pv-req-pill b { font-weight: 500; color: color-mix(in srgb, var(--foreground, #ebebeb) 88%, transparent); }
@@ -1085,6 +1125,7 @@ const UI_HTML = `<!DOCTYPE html>
       <section class="stats-context">
         <div class="cache-bar" id="row-cached">
           <div class="cache-left"><span data-i18n="cache">Cache</span><span class="cache-pct" id="val-cache-hit">0%</span><span class="dot" id="dot-cached" style="display:inline-flex;align-items:center;justify-content:center;background:transparent"></span></div>
+          <span class="cache-meter" id="cache-meter" hidden><span id="cache-meter-fill"></span></span>
           <div class="cache-k" id="val-cache-hit-k"></div>
         </div>
 
@@ -1162,6 +1203,11 @@ const UI_HTML = `<!DOCTYPE html>
       ['ring', 'ring', PV_SVG.ring],
       ['bar', 'bar', '<span class="pv-ico-bar"><i></i></span>'],
     ])}
+    ${renderPickCard('cacheIndicator', [
+      ['icon', 'cacheIndicatorIcon', PV_SVG.check],
+      ['ring', 'ring', PV_SVG.ring],
+      ['bar', 'bar', '<span class="pv-ico-bar"><i></i></span>'],
+    ])}
     ${renderPickCard('resetFormat', [
       ['compact', 'compactTime', '4h 55m'],
       ['localized', 'localizedTime', '<span data-stats-i18n="localizedTimeSample"></span>'],
@@ -1170,7 +1216,29 @@ const UI_HTML = `<!DOCTYPE html>
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}
     ${renderCheckCard({ id: 'setting-hide-unavailable-quota', key: 'hideUnavailableQuota', checked: DEFAULT_SETTINGS.hideUnavailableQuota })}
-    ${renderCheckCard({ id: 'setting-cache-warnings', key: 'showCacheWarnings', checked: true })}
+    <div class="setting-card setting-threshold-card" data-setting-card="showCacheWarnings" data-checked="${DEFAULT_SETTINGS.showCacheWarnings}">
+      <div class="setting-head setting-pair-head">
+        <div class="setting-pair-item">
+          <label class="setting-check">
+            <input id="setting-cache-warnings" name="showCacheWarnings" type="checkbox"${DEFAULT_SETTINGS.showCacheWarnings ? ' checked' : ''} />
+            <span data-i18n="showCacheWarnings"></span>
+          </label>
+        </div>
+        <div class="setting-thresholds">
+          <label class="setting-num" data-input-setting="cacheWarnMin">
+            <span class="setting-num-dot setting-num-warn" aria-hidden="true"></span>
+            <input id="setting-cache-warn-min" name="cacheWarnMin" type="number" min="1" max="998" step="1" value="${DEFAULT_SETTINGS.cacheWarnMin}" inputmode="numeric" />
+            <span class="setting-num-unit">m</span>
+          </label>
+          <label class="setting-num" data-input-setting="cacheColdMin">
+            <span class="setting-num-dot setting-num-cold" aria-hidden="true"></span>
+            <input id="setting-cache-cold-min" name="cacheColdMin" type="number" min="2" max="999" step="1" value="${DEFAULT_SETTINGS.cacheColdMin}" inputmode="numeric" />
+            <span class="setting-num-unit">m</span>
+          </label>
+        </div>
+      </div>
+      <div class="setting-preview" aria-hidden="true">${PV_CARD_PREVIEW.showCacheWarnings}</div>
+    </div>
     ${renderCheckCard({ id: 'setting-context-warnings', key: 'showContextWarnings', checked: true })}
     ${renderCheckCard({ id: 'setting-request-errors', key: 'showRequestErrors', checked: true })}
     <div class="setting-card setting-speed-pair metric-setting" data-setting-card="showSpeed" data-checked="true" data-speed-fx="false">
@@ -1221,6 +1289,24 @@ const UI_HTML = `<!DOCTYPE html>
       <div class="pv-detail-card pv-live"><div class="turn-bar-list">
         ${PV_TURN_ITEMS.map(([key, labelKey, value]) => `<div class="turn-bar-item" data-turn-row="${key}"><span class="turn-bar-line"></span><span class="turn-bar-label" data-i18n="${labelKey}"></span>${key === 'requests' ? '<span class="turn-bar-short" data-i18n="turnReqsShort" aria-hidden="true">Re</span>' : ''}<span class="turn-bar-val">${value}</span></div>`).join('')}
       </div></div>
+    </div>
+    <div class="setting-card setting-threshold-card" data-setting-card="showQueueWarnings" data-checked="${DEFAULT_SETTINGS.showQueueWarnings}">
+      <div class="setting-head setting-pair-head">
+        <div class="setting-pair-item">
+          <label class="setting-check">
+            <input id="setting-queue-warnings" name="showQueueWarnings" type="checkbox"${DEFAULT_SETTINGS.showQueueWarnings ? ' checked' : ''} />
+            <span data-i18n="showQueueWarnings"></span>
+          </label>
+        </div>
+        <div class="setting-thresholds">
+          <label class="setting-num" data-input-setting="queueWarnSec">
+            <span class="setting-num-dot setting-num-warn" aria-hidden="true"></span>
+            <input id="setting-queue-warn-sec" name="queueWarnSec" type="number" min="1" max="999" step="1" value="${DEFAULT_SETTINGS.queueWarnSec}" inputmode="numeric" />
+            <span class="setting-num-unit">s</span>
+          </label>
+        </div>
+      </div>
+      <div class="setting-preview" aria-hidden="true">${PV_CARD_PREVIEW.showQueueWarnings}</div>
     </div>
   </section>
 
@@ -1286,7 +1372,7 @@ const UI_HTML = `<!DOCTYPE html>
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') for (const setting of document.querySelectorAll('.metric-setting')) setting.dataset.helpDismissed = 'true';
     });
-    function applySettings(next) {
+    function applySettings(next, forceInputs = false) {
       prefs = { ...prefs, ...next };
       labels = presentation.apply(document.body, prefs);
       settingsLabels = presentation.dictionaries[prefs.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1302,6 +1388,22 @@ const UI_HTML = `<!DOCTYPE html>
         const card = checkbox.closest('[data-setting-card]');
         if (card) card.dataset.checked = String(checked);
       }
+      for (const numInput of document.querySelectorAll('.settings input[type="number"][name]')) {
+        if (forceInputs || document.activeElement !== numInput) numInput.value = String(prefs[numInput.name] ?? '');
+        const tip = settingsLabels[numInput.name] || numInput.name;
+        numInput.setAttribute('aria-label', tip);
+        const wrap = numInput.closest('.setting-num');
+        if (wrap) wrap.title = tip;
+      }
+      const { warnMin, coldMin } = presentation.cacheThresholds(prefs);
+      const pvFresh = document.querySelector('[data-cache-pv="fresh"]');
+      const pvWarn = document.querySelector('[data-cache-pv="warn"]');
+      const pvCold = document.querySelector('[data-cache-pv="cold"]');
+      if (pvFresh) pvFresh.textContent = '<' + warnMin + 'm';
+      if (pvWarn) pvWarn.textContent = warnMin + 'm+';
+      if (pvCold) pvCold.textContent = coldMin + 'm+';
+      const pvQueue = document.querySelector('[data-queue-pv]');
+      if (pvQueue) pvQueue.textContent = '×2 ' + (prefs.queueWarnSec ?? 30) + 's';
       const speedCard = document.querySelector('[data-setting-card="showSpeed"]');
       if (speedCard) speedCard.dataset.speedFx = String(prefs.showSpeed !== false && prefs.speedAnimation === true);
       const speedAnimCard = document.querySelector('[data-setting-card="speedAnimation"]');
@@ -1347,9 +1449,9 @@ const UI_HTML = `<!DOCTYPE html>
           const res = await fetch(api.url, { method: 'POST', headers: { ...api.headers, 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
           const data = await res.json();
           if (!res.ok || data.error) throw new Error('Save failed');
-          applySettings(data);
+          applySettings(data, true);
         } catch {
-          applySettings(previous);
+          applySettings(previous, true);
           window.alert(settingsLabels.saveFailed);
         } finally {
           settingsEpoch++;
@@ -1358,7 +1460,37 @@ const UI_HTML = `<!DOCTYPE html>
         }
     }
     for (const select of document.querySelectorAll('.settings select[name], .settings input[name]')) {
+      if (select.type === 'number') {
+        select.addEventListener('keydown', event => {
+          if (['e', 'E', '+', '-', '.'].includes(event.key)) { event.preventDefault(); return; }
+          if (event.key === 'Enter') select.blur();
+        });
+        select.addEventListener('input', () => {
+          const max = Number(select.max) || 999;
+          const digits = select.value.replace(/\D/g, '').replace(/^0+/, '');
+          if (!digits) {
+            if (select.value !== '') select.value = '';
+            return;
+          }
+          const capped = Number(digits) > max ? String(max) : digits;
+          if (select.value !== capped) select.value = capped;
+        });
+      }
       select.addEventListener('change', () => {
+        if (select.type === 'number') {
+          const parsed = Math.round(Number(select.value));
+          const min = Number(select.min);
+          const max = Number(select.max);
+          if (!Number.isFinite(parsed) || select.value.trim() === '') {
+            select.value = String(prefs[select.name]);
+            return;
+          }
+          const clamped = Math.max(Number.isFinite(min) ? min : parsed, Math.min(Number.isFinite(max) ? max : parsed, parsed));
+          select.value = String(clamped);
+          if (clamped === prefs[select.name]) return;
+          void saveSettings({ [select.name]: clamped });
+          return;
+        }
         const value = select.type === 'checkbox' ? select.checked : select.value;
         const patch = { [select.name]: value };
         if (select.name === 'showSpeed' && !value) patch.speedAnimation = false;
@@ -1486,7 +1618,7 @@ const UI_HTML = `<!DOCTYPE html>
         const res = await fetch('/api/context' + qStr, { method: 'GET', headers });
         const d = await res.json();
         if (d.error) return;
-        if (d.uiVersion && d.uiVersion !== 99) {
+        if (d.uiVersion && d.uiVersion !== 105) {
           window.location.reload();
           return;
         }
@@ -1517,7 +1649,16 @@ const UI_HTML = `<!DOCTYPE html>
         const cache = presentation.cacheView(d, prefs);
         const valCacheHitEl = document.getElementById('val-cache-hit');
         const valCacheHitKEl = document.getElementById('val-cache-hit-k');
+        const cacheMeterEl = document.getElementById('cache-meter');
+        const cacheMeterFillEl = document.getElementById('cache-meter-fill');
         dotCachedEl.innerHTML = cache.iconSvg;
+        if (cacheMeterEl && cacheMeterFillEl) {
+          cacheMeterEl.hidden = cache.indicator !== 'bar';
+          if (!cacheMeterEl.hidden) {
+            cacheMeterFillEl.style.width = cache.progressPct;
+            cacheMeterFillEl.style.backgroundColor = cache.progressColor;
+          }
+        }
         valCacheHitEl.style.color = cache.valColor;
         valCacheHitEl.style.textDecoration = cache.valDeco;
         valCacheHitEl.style.opacity = cache.valOp;
@@ -1558,9 +1699,11 @@ const UI_HTML = `<!DOCTYPE html>
       const busy = savingSettings;
       for (const control of document.querySelectorAll('.settings select, .settings input, .settings button:not(.setting-help-dot)')) {
         const optionCard = control.closest('.setting-option-card');
+        const thresholdCard = control.closest('.setting-threshold-card');
         const detailPop = control.closest('.pv-detail-pop');
         const parentDisabled = (control.name === 'speedAnimation' && prefs.showSpeed === false)
           || (!!optionCard && !control.closest('.setting-pair-item') && optionCard.dataset.checked === 'false')
+          || (!!thresholdCard && !control.closest('.setting-pair-item') && thresholdCard.dataset.checked === 'false')
           || (!!detailPop && detailPop.dataset.open === 'false');
         control.disabled = busy || parentDisabled;
       }

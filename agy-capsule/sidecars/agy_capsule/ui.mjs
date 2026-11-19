@@ -14,7 +14,13 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       settingsLanguage: 'Settings language', highlightActiveModel: 'Highlight active model',
       hideUnavailableQuota: 'Hide absent quota windows',
       showCacheWarnings: 'Cache expiry alert',
+      cacheWarnMin: 'Yellow alert (min)', cacheColdMin: 'Red alert (min)',
       showContextWarnings: 'Context overload alert', showRequestErrors: 'Request failure capsule',
+      showQueueWarnings: 'Server queue alert', queueWarnSec: 'Queue alert threshold (s)',
+      queueShort: 'Queue', queueHeading: 'Server queue',
+      queueDetail: '{count} request(s) in this turn waited over {sec}s for the first token; it may be queued on the server.',
+      queueLiveNow: 'Current wait: {sec}s.',
+      queueDiagnostic: 'Slow waits this turn: {list} (threshold {sec}s)',
       highContextTip: 'Context usage is high. Consider compacting or starting a new chat.',
       overflowContextTip: 'Latest request exceeded the model context limit.',
       requestFailure: 'Request failure', retryAfter: 'Server-reported retry wait:',
@@ -29,7 +35,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       speedAnimation: 'Effects',
       saveFailed: 'Could not save. Please try again.',
       newChat: 'New conversation', cached: 'cached',
-      cachedInput: 'Cached input', lastActivity: 'Last recorded activity', cacheWarning: 'Approaching the 4m reminder threshold', cacheCold: '4m threshold reached; cache may be cold',
+      cachedInput: 'Cached input', lastActivity: 'Last recorded activity', cacheWarning: 'Approaching the {m}m reminder threshold', cacheCold: '{m}m threshold reached; cache may be cold',
       context: 'Context details', quota: 'Model quotas',
       contextUsed: 'Used', contextLimit: 'Limit', contextRemaining: 'Remaining', uncachedInput: 'Uncached input', ofLimit: '{pct} of context limit', resetAt: 'Resets', resetUnknown: 'Reset time not reported',
       contextScope: 'Current request input context (excludes its new output).',
@@ -49,7 +55,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       turnSectionTip: 'Aggregates requests, elapsed wall time, write, and thinking tokens from your latest user message to completion.',
       panelLayout: 'Panel height', naturalLayout: 'Natural', matchedLayout: 'Matched',
       density: 'Panel spacing', compact: 'Compact', standard: 'Standard', spacious: 'Spacious',
-      quotaIndicator: 'Quota indicator', ring: 'Ring', bar: 'Bar',
+      quotaIndicator: 'Quota indicator', cacheIndicator: 'Cache indicator', cacheIndicatorIcon: 'Icon', ring: 'Ring', bar: 'Bar',
       labelCase: 'Label casing', lowercase: 'Lowercase', titlecase: 'Title case',
       contextLayout: 'Context breakdown', turnLayout: 'Turn metrics style', layoutColumns: 'Columns', layoutRows: 'Rows', contextMarker: 'Context marker', turnMarker: 'Turn marker', showContextBreakdown: 'Context breakdown', markerSquare: 'Square', markerDot: 'Dot',
       columnLabel: 'Names in columns', columnValue: 'Values in columns', columnPercent: 'Percentages in columns', fieldName: 'Name', fieldValue: 'Value', fieldPercent: '%', fieldDragTip: 'Drag to reorder; the switch hides or shows this line.',
@@ -67,7 +73,13 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       settingsLanguage: '设置语言', highlightActiveModel: '突出当前模型',
       hideUnavailableQuota: '隐藏不存在的配额窗口',
       showCacheWarnings: '缓存过期提醒',
+      cacheWarnMin: '变黄时间（分钟）', cacheColdMin: '变红时间（分钟）',
       showContextWarnings: '上下文过载提醒', showRequestErrors: '请求失败胶囊',
+      showQueueWarnings: '服务器排队预警', queueWarnSec: '排队预警阈值（秒）',
+      queueShort: '排队', queueHeading: '服务器排队',
+      queueDetail: '本轮有 {count} 次请求等待首字超过 {sec}s，可能正在服务器排队。',
+      queueLiveNow: '当前已等待 {sec}s。',
+      queueDiagnostic: '本轮超阈等待：{list}（阈值 {sec}s）',
       highContextTip: '上下文占用较高，建议压缩或开启新对话。',
       overflowContextTip: '最近一次请求已超出上下文上限。',
       requestFailure: '请求失败', retryAfter: '服务端报告的重试等待：',
@@ -82,7 +94,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       speedAnimation: '动效',
       saveFailed: '保存失败，请重试。',
       newChat: '新对话', cached: '缓存',
-      cachedInput: '缓存输入', lastActivity: '最近记录距今', cacheWarning: '接近 4 分钟提醒阈值', cacheCold: '已达 4 分钟阈值，缓存可能已冷却',
+      cachedInput: '缓存输入', lastActivity: '最近记录距今', cacheWarning: '接近 {m} 分钟提醒阈值', cacheCold: '已达 {m} 分钟阈值，缓存可能已冷却',
       context: '上下文明细', quota: '模型配额',
       contextUsed: '已用', contextLimit: '上限', contextRemaining: '剩余', uncachedInput: '非缓存输入', ofLimit: '占上限 {pct}', resetAt: '重置时间', resetUnknown: '未提供重置时间',
       contextScope: '最近一次请求的输入上下文（不含刚生成的输出）。',
@@ -102,7 +114,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       turnSectionTip: '从最近一条用户消息到结束，按整轮累计请求数、耗时、写入与思考。',
       panelLayout: '面板高度', naturalLayout: '自然高度', matchedLayout: '对齐高度',
       density: '面板间距', compact: '紧凑', standard: '标准', spacious: '舒展',
-      quotaIndicator: '额度图形', ring: '圆环', bar: '进度条',
+      quotaIndicator: '额度图形', cacheIndicator: '缓存图形', cacheIndicatorIcon: '图标', ring: '圆环', bar: '进度条',
       labelCase: '面板大小写', lowercase: '全小写', titlecase: '首字母大写',
       contextLayout: '上下文明细', turnLayout: '本轮统计样式', layoutColumns: '竖线', layoutRows: '横条', contextMarker: '上下文标记', turnMarker: '本轮标记', showContextBreakdown: '上下文明细', markerSquare: '方块', markerDot: '圆点',
       columnLabel: '竖线显示名称', columnValue: '竖线显示数值', columnPercent: '竖线显示百分比', fieldName: '名称', fieldValue: '数值', fieldPercent: '百分比', fieldDragTip: '拖动调整顺序，开关控制这一行显示或隐藏。',
@@ -120,7 +132,13 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       settingsLanguage: '設定語言', highlightActiveModel: '突出目前模型',
       hideUnavailableQuota: '隱藏不存在的配額視窗',
       showCacheWarnings: '快取過期提醒',
+      cacheWarnMin: '變黃時間（分鐘）', cacheColdMin: '變紅時間（分鐘）',
       showContextWarnings: '上下文過載提醒', showRequestErrors: '請求失敗膠囊',
+      showQueueWarnings: '伺服器排隊預警', queueWarnSec: '排隊預警閾值（秒）',
+      queueShort: '排隊', queueHeading: '伺服器排隊',
+      queueDetail: '本輪有 {count} 次請求等待首字超過 {sec}s，可能正在伺服器排隊。',
+      queueLiveNow: '目前已等待 {sec}s。',
+      queueDiagnostic: '本輪超閾等待：{list}（閾值 {sec}s）',
       highContextTip: '上下文佔用較高，建議壓縮或開啟新對話。',
       overflowContextTip: '最近一次請求已超出上下文上限。',
       requestFailure: '請求失敗', retryAfter: '服務端回報的重試等待：',
@@ -135,7 +153,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       speedAnimation: '動效',
       saveFailed: '儲存失敗，請重試。',
       newChat: '新對話', cached: '快取',
-      cachedInput: '快取輸入', lastActivity: '最近記錄距今', cacheWarning: '接近 4 分鐘提醒閾值', cacheCold: '已達 4 分鐘閾值，快取可能已冷卻',
+      cachedInput: '快取輸入', lastActivity: '最近記錄距今', cacheWarning: '接近 {m} 分鐘提醒閾值', cacheCold: '已達 {m} 分鐘閾值，快取可能已冷卻',
       context: '上下文明細', quota: '模型配額',
       contextUsed: '已用', contextLimit: '上限', contextRemaining: '剩餘', uncachedInput: '非快取輸入', ofLimit: '佔上限 {pct}', resetAt: '重設時間', resetUnknown: '未提供重設時間',
       contextScope: '最近一次請求的輸入上下文（不含剛產生的輸出）。',
@@ -155,7 +173,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       turnSectionTip: '從最近一條使用者訊息到結束，依整輪累計請求數、耗時、寫入與思考。',
       panelLayout: '面板高度', naturalLayout: '自然高度', matchedLayout: '對齊高度',
       density: '面板間距', compact: '緊湊', standard: '標準', spacious: '舒展',
-      quotaIndicator: '額度圖形', ring: '圓環', bar: '進度條',
+      quotaIndicator: '額度圖形', cacheIndicator: '快取圖形', cacheIndicatorIcon: '圖示', ring: '圓環', bar: '進度條',
       labelCase: '面板大小寫', lowercase: '全小寫', titlecase: '首字母大寫',
       contextLayout: '上下文明細', turnLayout: '本輪統計樣式', layoutColumns: '豎線', layoutRows: '橫條', contextMarker: '上下文標記', turnMarker: '本輪標記', showContextBreakdown: '上下文明細', markerSquare: '方塊', markerDot: '圓點',
       columnLabel: '豎線顯示名稱', columnValue: '豎線顯示數值', columnPercent: '豎線顯示百分比', fieldName: '名稱', fieldValue: '數值', fieldPercent: '百分比', fieldDragTip: '拖動調整順序，開關控制這一行顯示或隱藏。',
@@ -189,6 +207,29 @@ export function createPresentation(turnFactory = createTurnPresentation) {
   }
   const { dictionaries: turnDictionaries, ...turnMethods } = turnFactory(formatTokens);
   for (const language of Object.keys(dictionaries)) Object.assign(dictionaries[language], turnDictionaries[language]);
+  function cacheThresholds(prefs = {}) {
+    const rawWarn = Number(prefs?.cacheWarnMin);
+    const rawCold = Number(prefs?.cacheColdMin);
+    let warnMin = Number.isInteger(rawWarn) && rawWarn >= 1 && rawWarn <= 998 ? rawWarn : 3;
+    let coldMin = Number.isInteger(rawCold) && rawCold >= 2 && rawCold <= 999 ? rawCold : 4;
+    if (coldMin <= warnMin) coldMin = Math.min(999, warnMin + 1);
+    return { warnMin, coldMin, warnSec: warnMin * 60, coldSec: coldMin * 60 };
+  }
+  function makeCacheRingSvg(progress, color, size = 14) {
+    const clamped = Math.max(0, Math.min(1, Number(progress || 0)));
+    const r = 6.5;
+    const c = 2 * Math.PI * r;
+    const offset = c * (1 - clamped);
+    return (
+      '<svg width="' + size + '" height="' + size + '" viewBox="0 0 18 18" style="transform: rotate(-90deg); flex-shrink: 0;">' +
+      '<circle cx="9" cy="9" r="' + r + '" fill="none" stroke="rgba(142,142,147,0.28)" stroke-width="2.4"/>' +
+      (clamped > 0
+        ? '<circle cx="9" cy="9" r="' + r + '" fill="none" stroke="' + color + '" stroke-width="2.4" stroke-linecap="round" ' +
+          'stroke-dasharray="' + c.toFixed(2) + '" stroke-dashoffset="' + offset.toFixed(2) + '"/>'
+        : '') +
+      '</svg>'
+    );
+  }
   function cacheTooltip(data = {}, t = dictionaries.en, nowMs = Date.now(), prefs = {}) {
     const context = Number(data.contextTokens) || 0;
     if (context <= 0) return `0 / 0 ${t.cached} · ${t.newChat}`;
@@ -196,8 +237,9 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     const seconds = Number.isFinite(timestamp) && timestamp > 0 ? Math.max(0, Math.floor((nowMs - timestamp) / 1000)) : null;
     const minutes = seconds === null ? null : Math.floor(seconds / 60);
     const age = minutes === null ? '—' : minutes < 1 ? '<1m' : minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ''}`;
+    const { warnSec, coldSec, coldMin } = cacheThresholds(prefs);
     const warn = prefs?.showCacheWarnings !== false && seconds !== null;
-    const state = !warn ? '' : seconds >= 240 ? t.cacheCold : seconds >= 180 ? t.cacheWarning : '';
+    const state = !warn ? '' : seconds >= coldSec ? t.cacheCold.replace('{m}', String(coldMin)) : seconds >= warnSec ? t.cacheWarning.replace('{m}', String(coldMin)) : '';
     return `${t.cachedInput}: ${formatTokens(data.cachedIn ?? 0)} / ${formatTokens(context)} tokens · ${t.lastActivity}: ${age}${state ? ' · ' + state : ''}`;
   }
   function cacheView(data = {}, prefs = {}, nowMs = Date.now()) {
@@ -205,27 +247,46 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     const cached = data.cachedIn || 0;
     const hitPct = ctx > 0 ? Math.round((cached / ctx) * 100) : 0;
     const warn = prefs?.showCacheWarnings !== false;
-    const idleSec = warn && ctx > 0 && data.lastStepEpochMs ? Math.max(0, Math.floor((nowMs - data.lastStepEpochMs) / 1000)) : 0;
-    if (idleSec >= 240) {
+    const { warnSec, coldSec } = cacheThresholds(prefs);
+    const indicator = ['ring', 'bar'].includes(prefs?.cacheIndicator) ? prefs.cacheIndicator : 'icon';
+    const ts = Number(data.lastStepEpochMs);
+    const hasAge = ctx > 0 && Number.isFinite(ts) && ts > 0;
+    const elapsedSec = warn && hasAge ? Math.max(0, (nowMs - ts) / 1000) : 0;
+    const idleSec = Math.floor(elapsedSec);
+    const progress = warn && hasAge && coldSec > 0 ? Math.min(1, elapsedSec / coldSec) : 0;
+    const progressPct = progress >= 1 ? '100%' : (progress * 100).toFixed(1) + '%';
+    if (idleSec >= coldSec) {
+      const progressColor = '#e06c75';
+      const iconSvg = indicator === 'bar' ? ''
+        : indicator === 'ring' ? makeCacheRingSvg(1, progressColor)
+        : '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#e06c75" stroke-width="2" stroke-linecap="round"><line x1="2.2" y1="2.2" x2="9.8" y2="9.8"/><line x1="9.8" y1="2.2" x2="2.2" y2="9.8"/></svg>';
       return {
-        status: 'cold',
-        iconSvg: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#e06c75" stroke-width="2" stroke-linecap="round"><line x1="2.2" y1="2.2" x2="9.8" y2="9.8"/><line x1="9.8" y1="2.2" x2="2.2" y2="9.8"/></svg>',
+        status: 'cold', indicator, progress: 1, progressPct: '100%', progressColor,
+        iconSvg,
         valColor: '', valDeco: 'line-through', valOp: '0.5', text: hitPct + '%', countdown: '',
         ctxIconColor: 'rgba(208, 122, 128, 0.88)',
       };
     }
-    if (idleSec >= 180) {
-      const remMin = Math.max(1, Math.ceil((240 - idleSec) / 60));
+    if (idleSec >= warnSec) {
+      const progressColor = '#d4940a';
+      const remMin = Math.max(1, Math.ceil((coldSec - idleSec) / 60));
+      const iconSvg = indicator === 'bar' ? ''
+        : indicator === 'ring' ? makeCacheRingSvg(progress, progressColor)
+        : '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#d4940a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="4.8"/><polyline points="6 3.5 6 6 7.8 7.2"/></svg>';
       return {
-        status: 'warning',
-        iconSvg: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#d4940a" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="4.8"/><polyline points="6 3.5 6 6 7.8 7.2"/></svg>',
+        status: 'warning', indicator, progress, progressPct, progressColor,
+        iconSvg,
         valColor: '#d4940a', valDeco: 'none', valOp: '1', text: hitPct + '%', countdown: '~' + remMin + 'm',
         ctxIconColor: 'rgba(206, 168, 92, 0.88)',
       };
     }
+    const progressColor = '#4ea84e';
+    const iconSvg = indicator === 'bar' ? ''
+      : indicator === 'ring' ? makeCacheRingSvg(progress, progressColor)
+      : '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2 6.5 4.8 9.2 10 3"/></svg>';
     return {
-      status: 'fresh',
-      iconSvg: '<svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="2 6.5 4.8 9.2 10 3"/></svg>',
+      status: 'fresh', indicator, progress, progressPct, progressColor,
+      iconSvg,
       valColor: '', valDeco: 'none', valOp: '1', text: hitPct + '%', countdown: '',
       ctxIconColor: '',
     };
@@ -361,20 +422,47 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       return { title, rawName, modelsInGroup, activeColor: activeGroupColor(g), q5h, qWk, buckets };
     });
   }
-  function alertView(data = {}, prefs = {}, t = dictionaries.en) {
+  function alertView(data = {}, prefs = {}, t = dictionaries.en, nowMs = Date.now(), running = false) {
     const kind = data.requestError?.kind || 'none';
     const ratio = data.maxContextTokens > 0 ? (data.contextTokens || 0) / data.maxContextTokens : 0;
     const contextTone = prefs.showContextWarnings === false ? '' : kind === 'context_overflow' || ratio >= .9 ? 'error' : ratio >= .75 ? 'warning' : '';
     const contextTip = !contextTone ? '' : kind === 'context_overflow' ? t.overflowContextTip : t.highContextTip;
-    const visible = prefs.showRequestErrors !== false && ['quota_exhausted', 'rate_limited', 'network_error', 'auth_error', 'service_unavailable', 'unknown'].includes(kind);
-    const label = visible ? t['error_' + kind] : '';
-    const wait = data.requestError?.retryAfterSec;
-    const detail = visible ? t['detail_' + kind] + (kind === 'rate_limited' && typeof wait === 'number' ? ` ${t.retryAfter} ${wait}s` : '') : '';
-    const diagnostic = visible ? data.requestError?.diagnostic || '' : '';
-    return { contextTone, contextTip, visible, label, detail, diagnostic };
+    const errorVisible = prefs.showRequestErrors !== false && ['quota_exhausted', 'rate_limited', 'network_error', 'auth_error', 'service_unavailable', 'unknown'].includes(kind);
+    if (errorVisible) {
+      const label = t['error_' + kind];
+      const wait = data.requestError?.retryAfterSec;
+      const detail = t['detail_' + kind] + (kind === 'rate_limited' && typeof wait === 'number' ? ` ${t.retryAfter} ${wait}s` : '');
+      const diagnostic = data.requestError?.diagnostic || '';
+      return { contextTone, contextTip, mode: 'error', visible: true, label, heading: label, detail, diagnostic, queueCount: 0, liveWaitSec: 0 };
+    }
+    const rawQueueSec = Number(prefs.queueWarnSec);
+    const thresholdSec = Number.isInteger(rawQueueSec) && rawQueueSec >= 1 && rawQueueSec <= 999 ? rawQueueSec : 30;
+    const queueEnabled = prefs.showQueueWarnings !== false;
+    const turnQueue = data.turnQueue || null;
+    const slowWaits = Array.isArray(turnQueue?.waits)
+      ? turnQueue.waits.filter(v => Number.isFinite(v) && v >= thresholdSec)
+      : [];
+    const canLiveWait = Boolean(turnQueue && !turnQueue.turnTerminal && Number.isFinite(turnQueue.waitingSinceMs) && turnQueue.waitingSinceMs > 0 && (running || turnQueue.hasPendingPlanner));
+    const liveWaitSec = canLiveWait ? Math.max(0, (nowMs - turnQueue.waitingSinceMs) / 1000) : 0;
+    const liveExceeded = canLiveWait && liveWaitSec >= thresholdSec;
+    const queueCount = slowWaits.length + (liveExceeded ? 1 : 0);
+    if (queueEnabled && queueCount > 0) {
+      const liveInt = Math.floor(liveWaitSec);
+      const mult = queueCount > 1 ? `×${queueCount}` : '';
+      const label = liveExceeded
+        ? `${t.queueShort}${mult} ${liveInt}s`
+        : `${t.queueShort}${mult}`;
+      const heading = `${t.queueHeading}${mult ? ' ' + mult : ''}`;
+      const baseDetail = t.queueDetail.replace('{count}', String(queueCount)).replace('{sec}', String(thresholdSec));
+      const detail = liveExceeded ? `${baseDetail} ${t.queueLiveNow.replace('{sec}', String(liveInt))}` : baseDetail;
+      const list = [...slowWaits.map(v => Math.round(v) + 's'), ...(liveExceeded ? [liveInt + 's+'] : [])].join(', ');
+      const diagnostic = t.queueDiagnostic.replace('{list}', list).replace('{sec}', String(thresholdSec));
+      return { contextTone, contextTip, mode: 'queue', visible: true, label, heading, detail, diagnostic, queueCount, liveWaitSec };
+    }
+    return { contextTone, contextTip, mode: 'none', visible: false, label: '', heading: '', detail: '', diagnostic: '', queueCount: 0, liveWaitSec: 0 };
   }
-  function renderAlerts(root, data, prefs, t) {
-    const view = alertView(data, prefs, t);
+  function renderAlerts(root, data, prefs, t, nowMs = Date.now(), running = false) {
+    const view = alertView(data, prefs, t, nowMs, running);
     root.dataset.contextTone = view.contextTone;
     if (view.contextTip) for (const node of root.querySelectorAll('[data-context-tip="overview"]')) node.title += '\n' + view.contextTip;
     for (const node of root.querySelectorAll('[data-request-error]')) {
@@ -383,8 +471,10 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     const group = root.querySelector('[data-el="grpError"]');
     if (group) {
       group.hidden = !view.visible;
-      group.querySelector('.dk-pill').setAttribute('aria-label', `${t.requestFailure}: ${view.label}`);
-      group.querySelector('.dk-pill').title = [view.label, view.detail, view.diagnostic].filter(Boolean).join('\n');
+      group.dataset.alertMode = view.mode;
+      const prefix = view.mode === 'queue' ? t.queueHeading : t.requestFailure;
+      group.querySelector('.dk-pill').setAttribute('aria-label', `${prefix}: ${view.label}`);
+      group.querySelector('.dk-pill').title = [view.heading || view.label, view.detail, view.diagnostic].filter(Boolean).join('\n');
     }
     return view;
   }
@@ -433,7 +523,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return view;
   }
   function appearance(prefs = {}) {
-    return { panelLayout: prefs.panelLayout || 'natural', density: prefs.density || 'compact', quotaIndicator: prefs.quotaIndicator || 'ring', labelCase: prefs.labelCase || 'lowercase', resetFormat: prefs.resetFormat === 'localized' ? 'localized' : 'compact', contextLayout: prefs.contextLayout === 'rows' ? 'rows' : 'columns', turnLayout: prefs.turnLayout === 'rows' ? 'rows' : 'columns', contextMarker: prefs.contextMarker === 'dot' ? 'dot' : 'square', turnMarker: prefs.turnMarker === 'dot' ? 'dot' : 'square', showContextBreakdown: String(prefs.showContextBreakdown !== false), columnLabel: String(prefs.columnLabel !== false), columnValue: String(prefs.columnValue !== false), columnPercent: String(prefs.columnPercent === true) };
+    return { panelLayout: prefs.panelLayout || 'natural', density: prefs.density || 'compact', quotaIndicator: prefs.quotaIndicator || 'ring', cacheIndicator: ['ring', 'bar'].includes(prefs.cacheIndicator) ? prefs.cacheIndicator : 'icon', labelCase: prefs.labelCase || 'lowercase', resetFormat: prefs.resetFormat === 'localized' ? 'localized' : 'compact', contextLayout: prefs.contextLayout === 'rows' ? 'rows' : 'columns', turnLayout: prefs.turnLayout === 'rows' ? 'rows' : 'columns', contextMarker: prefs.contextMarker === 'dot' ? 'dot' : 'square', turnMarker: prefs.turnMarker === 'dot' ? 'dot' : 'square', showContextBreakdown: String(prefs.showContextBreakdown !== false), columnLabel: String(prefs.columnLabel !== false), columnValue: String(prefs.columnValue !== false), columnPercent: String(prefs.columnPercent === true) };
   }
   function formatReset(isoStr, prefs = {}, now = Date.now()) {
     if (!isoStr) return '';
@@ -486,7 +576,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return t;
   }
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return { version: 62, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
+  return { version: 67, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
 }
 
-export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 62) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
+export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 67) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;

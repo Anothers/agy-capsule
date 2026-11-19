@@ -205,7 +205,7 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.ok(!UI_HTML.includes('data-i18n="previewKeepZero"'));
   assert.ok(!UI_HTML.includes('pv-err-pop'));
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
-    assert.ok(['data-setting-card', 'data-pick-setting', 'data-toggle-setting', 'data-order-setting'].some(attr => UI_HTML.includes(`${attr}="${key}"`)), `missing setting item for ${key}`);
+    assert.ok(['data-setting-card', 'data-pick-setting', 'data-toggle-setting', 'data-order-setting', 'data-input-setting'].some(attr => UI_HTML.includes(`${attr}="${key}"`)), `missing setting item for ${key}`);
   }
   const settingsHtml = UI_HTML.slice(UI_HTML.indexOf('<section class="settings'));
   assert.ok(
@@ -430,4 +430,96 @@ test('help dots, disabled option controls, turn preview short labels, and convId
   const { inspectConversation } = await import('../agy-capsule/sidecars/agy_capsule/server.mjs');
   const unsafe = await inspectConversation('../../nonexistent', true);
   assert.equal(unsafe.contextTokens, 0);
+});
+
+test('cache warning thresholds, cache indicator (icon/ring/bar) and queue warning settings validate, render and stay ordered', () => {
+  assert.equal(DEFAULT_SETTINGS.cacheWarnMin, 3);
+  assert.equal(DEFAULT_SETTINGS.cacheColdMin, 4);
+  assert.equal(DEFAULT_SETTINGS.cacheIndicator, 'icon');
+  assert.equal(DEFAULT_SETTINGS.showQueueWarnings, true);
+  assert.equal(DEFAULT_SETTINGS.queueWarnSec, 30);
+
+  const dir = mkdtempSync(join(tmpdir(), 'agy-cache-queue-'));
+  try {
+    const store = createSettingsStore(join(dir, 'settings.json'));
+    store.update({ cacheWarnMin: 5 });
+    assert.equal(store.read().cacheWarnMin, 5);
+    assert.equal(store.read().cacheColdMin, 6, 'raising warn above cold bumps cold by 1');
+    store.update({ cacheColdMin: 10, cacheIndicator: 'bar', queueWarnSec: 45, showQueueWarnings: false });
+    assert.equal(store.read().cacheWarnMin, 5);
+    assert.equal(store.read().cacheColdMin, 10);
+    assert.equal(store.read().cacheIndicator, 'bar');
+    assert.equal(store.read().queueWarnSec, 45);
+    assert.equal(store.read().showQueueWarnings, false);
+    store.update({ cacheColdMin: 3 });
+    assert.equal(store.read().cacheColdMin, 3);
+    assert.equal(store.read().cacheWarnMin, 2, 'lowering cold below warn lowers warn by 1');
+    store.update({ cacheWarnMin: 0, cacheColdMin: 1000, queueWarnSec: 1000, cacheIndicator: 'gauge' });
+    assert.equal(store.read().cacheWarnMin, 2);
+    assert.equal(store.read().cacheColdMin, 3);
+    assert.equal(store.read().queueWarnSec, 45);
+    assert.equal(store.read().cacheIndicator, 'bar');
+    store.update({ cacheWarnMin: 998, cacheColdMin: 999, queueWarnSec: 999 });
+    assert.equal(store.read().cacheWarnMin, 998);
+    assert.equal(store.read().cacheColdMin, 999);
+    assert.equal(store.read().queueWarnSec, 999);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  const ui = createPresentation();
+  const t0 = 1700000000000;
+  const data = { contextTokens: 100000, cachedIn: 80000, lastStepEpochMs: t0 };
+  const custom = { showCacheWarnings: true, cacheWarnMin: 5, cacheColdMin: 8, cacheIndicator: 'bar' };
+  const freshBar = ui.cacheView(data, custom, t0 + 240 * 1000); // 4m of 8m = 50%
+  assert.equal(freshBar.status, 'fresh');
+  assert.equal(freshBar.indicator, 'bar');
+  assert.equal(freshBar.progress, 0.5);
+  assert.equal(freshBar.progressPct, '50.0%');
+  assert.equal(freshBar.progressColor, '#4ea84e');
+  assert.equal(freshBar.iconSvg, '');
+
+  const warnBar = ui.cacheView(data, custom, t0 + 360 * 1000); // 6m of 8m = 75%
+  assert.equal(warnBar.status, 'warning');
+  assert.equal(warnBar.progress, 0.75);
+  assert.equal(warnBar.progressColor, '#d4940a');
+  assert.equal(warnBar.countdown, '~2m');
+  assert.match(ui.cacheTooltip(data, ui.dictionaries.en, t0 + 360 * 1000, custom), /Approaching the 8m reminder threshold/);
+
+  const coldBar = ui.cacheView(data, custom, t0 + 600 * 1000); // 10m > 8m => stays full red
+  assert.equal(coldBar.status, 'cold');
+  assert.equal(coldBar.progress, 1);
+  assert.equal(coldBar.progressPct, '100%');
+  assert.equal(coldBar.progressColor, '#e06c75');
+  assert.match(ui.cacheTooltip(data, ui.dictionaries['zh-CN'], t0 + 600 * 1000, custom), /已达 8 分钟阈值/);
+
+  const ringFresh = ui.cacheView(data, { showCacheWarnings: true, cacheIndicator: 'ring' }, t0 + 120 * 1000);
+  assert.equal(ringFresh.indicator, 'ring');
+  assert.equal(ringFresh.progress, 0.5);
+  assert.match(ringFresh.iconSvg, /stroke="#4ea84e"/);
+  const ringZero = ui.cacheView(data, { showCacheWarnings: true, cacheIndicator: 'ring' }, t0);
+  assert.equal(ringZero.progress, 0);
+  assert.doesNotMatch(ringZero.iconSvg, /stroke-dashoffset/, '0% ring should not draw a round-cap dot');
+  const ringCold = ui.cacheView(data, { showCacheWarnings: true, cacheIndicator: 'ring' }, t0 + 300 * 1000);
+  assert.equal(ringCold.progress, 1);
+  assert.match(ringCold.iconSvg, /stroke="#e06c75"[^>]*stroke-dashoffset="0\.00"/);
+
+  const offBar = ui.cacheView(data, { showCacheWarnings: false, cacheIndicator: 'bar' }, t0 + 600 * 1000);
+  assert.equal(offBar.status, 'fresh');
+  assert.equal(offBar.progress, 0);
+
+  const view = toView({ ...data, lastStepEpochMs: Date.now() - 120 * 1000, prefs: { showCacheWarnings: true, cacheIndicator: 'bar' } });
+  assert.equal(view.cacheIndicator, 'bar');
+  assert.equal(view.cacheProgressColor, '#4ea84e');
+  assert.equal(view.cacheIconSvg, '');
+
+  const settingsHtml = UI_HTML.slice(UI_HTML.indexOf('<section class="settings'));
+  assert.ok(settingsHtml.indexOf('data-setting-card="quotaIndicator"') < settingsHtml.indexOf('data-setting-card="cacheIndicator"'));
+  assert.ok(settingsHtml.indexOf('data-setting-card="cacheIndicator"') < settingsHtml.indexOf('data-settings-scope="features"'));
+  assert.ok(settingsHtml.indexOf('data-preview-group="turn"') < settingsHtml.indexOf('data-setting-card="showQueueWarnings"'), 'queue warning card should sit at the end of settings');
+  assert.match(settingsHtml, /setting-threshold-card" data-setting-card="showCacheWarnings"[\s\S]*name="cacheWarnMin"[^>]*max="998"[\s\S]*name="cacheColdMin"[^>]*max="999"/);
+  assert.match(settingsHtml, /setting-threshold-card" data-setting-card="showQueueWarnings"[\s\S]*name="queueWarnSec"[^>]*max="999"/);
+  assert.match(UI_HTML, /\.setting-thresholds \{ display: inline-flex; align-items: center; gap: 5px; min-width: 0;/);
+  assert.match(UI_HTML, /\.setting-threshold-card\[data-checked="false"\] \.setting-thresholds \{ opacity: \.42; pointer-events: none; \}/);
+  assert.match(UI_HTML, /select\.addEventListener\('input', \(\) => \{/);
 });
