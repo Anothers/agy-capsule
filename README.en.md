@@ -12,13 +12,13 @@ Promo video (v1.1, also on [Bilibili](https://www.bilibili.com/video/BV1ggsy6rEQ
 
 https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
-For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, and Request failure capsule in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
+For a simpler footer like 1.0, turn off Generation speed, Last request, Turn metrics, Request failure capsule, and Server queue alert in the sidebar [Settings](#settings). Turn off Context breakdown as well if you only want the key numbers.
 
 ## Context
 
 Shows context usage, cache hit rate and cache status. The limit is read live for the current session and model. **Everything below is optional.**
 
-- **Cache expiry alert**: The capsule icon turns yellow three minutes after the last turn and red at four, meaning the `Cache` has expired. The panel's Cache row changes with it.
+- **Cache expiry alert**: The capsule icon turns yellow at 3 minutes after the last turn and red at 4 by default, meaning the `Cache` has expired. Both thresholds can be customized inline in Settings (up to 998 / 999 minutes). The panel's Cache row updates with it.
 
 - **Context overload alert**: The capsule number turns yellow above 75% and red above 90%.
 
@@ -41,9 +41,12 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 - **Highlight active model**: Highlights the pool of the selected model and dims the others.
 - **Hide absent quota windows (on by default)**: For example, AI Pro users' Argon pool has no 5-hour quota, so that empty window is hidden.
 
-## Error alerts
+## Error & queue alerts
 
-A capsule appears only when a request fails; hover or click it to see the raw error and an explanation in the panel. Reasons shown: quota exhausted, rate limited (429), disconnected, authentication error, service busy and unknown. **Optional.**
+**Both are optional** and share the third footer capsule (request failures take priority when both are active):
+
+- **Request failure capsule**: Appears in red only when a request fails; hover or click it to see the raw error and an explanation in the panel. Reasons shown: quota exhausted, rate limited (429), disconnected, authentication error, service busy and unknown.
+- **Server queue alert**: Appears in amber when waiting for the model's first token during Working exceeds the threshold (default `30s`, configurable `1–999s` at the end of Settings), ticking live while waiting. Scoped to the current turn only, showing `×N` when multiple requests exceed the threshold (e.g. `Queue×2 40s` / `Queue×2`), with per-wait details in its panel. Active local tools and streaming responses do not trigger false alerts.
 
 ## Language and appearance
 
@@ -58,6 +61,8 @@ A capsule appears only when a request fails; hover or click it to see the raw er
 - **Label casing**: Lowercase, title case.
 
 - **Quota indicator**: Ring, bar.
+
+- **Cache indicator**: Icon, ring, bar. Ring and bar fill linearly over time since the last activity, turning yellow then red, and stay full once expired.
 
 - **Reset countdown**: Compact, localized.
 
@@ -109,7 +114,8 @@ The port only listens on this computer. While it's open, other programs on this 
 - **Generation speed** = total output ÷ (TTFT + streaming time). It includes the wait for the first token.
 - **Last request** covers only the most recent model request, not the whole turn; missing values show `—`.
 - **Turn metrics** start at your latest message; elapsed time includes queueing, waiting and tool execution.
-- **Cache expiry alerts are only a guide**: the cache state (yellow at 3 minutes, expired at 4) is estimated locally from the time since the last turn; actual cache hits depend on the server.
+- **Cache expiry alerts are only a guide**: the cache state (yellow at 3 minutes, expired at 4 by default; configurable in Settings) is estimated locally from the time since the last turn; actual cache hits depend on the server.
+- **Server queue alert**: combines recorded per-turn request TTFTs with live pre-first-token waiting time while working (excluding active local tools and streaming responses), resetting automatically on each new user message.
 
 <details>
 <summary>Details</summary>
