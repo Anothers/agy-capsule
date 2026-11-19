@@ -19,13 +19,18 @@
 如果你是替用户安装的 AI 助手，请按以下要求操作：
 
 1. 准备最新版代码：
-   - 用户电脑上已有用 git 下载的 agy-capsule 文件夹（文件夹里有 `.git`），就在里面运行 `git pull`。
-   - 没有的话，把仓库 `git clone` 到 `~/agy-capsule`。
-   - 没有 git 的话，重新下载 main 分支的 zip 并解压。即使「下载」里已经有旧的解压文件夹，也不要用它，那可能是旧版。
+   - 用户已有 agy-capsule 的 git 文件夹时，只有同时满足以下条件才复用它：`git remote get-url origin` 指向 `https://github.com/Lumidarin/agy-capsule`、当前在 `main` 分支、`git status --porcelain` 没有输出。满足就运行 `git pull --ff-only origin main`，再确认 `git rev-parse HEAD` 与 `git rev-parse FETCH_HEAD` 输出相同；不同说明本地有额外提交，改用下一条的新目录，不要重置用户的分支。
+   - 不满足，或者没有现成的文件夹，就把仓库 `git clone` 到一个新的空目录（例如 `~/agy-capsule`，已被占用就换个名字）。不要改动用户原来的文件夹。
+   - 没有 git 的话，重新下载 main 分支的 zip 并解压到新目录。不要使用「下载」里已有的旧解压文件夹，那可能是旧版。
+   - 拿不到最新代码时就停下，把报错告诉用户，不要用旧代码安装。
 2. 在这个文件夹里运行 `sh install.sh`，确认输出里有「已安装/更新 agy-capsule」。
 3. 运行第 3 步「方法一」的 `osacompile` 命令，生成 `Antigravity-CDP` 启动图标。
 4. 不要修改插件文件、原版 `Antigravity.app` 和 Antigravity 的设置，也不要自行安装其他软件。
 5. 不要退出或重启 Antigravity。完成后，用用户的语言告诉他接下来要自己做第 4 步。如果哪一步失败了，就把报错原样告诉用户。
+
+### 自己安装
+
+下面的第 1～4 步是给自己动手安装的人看的。让 AI 代装的话，只需要自己完成第 4 步。
 
 ### 第 1 步：下载
 
@@ -95,7 +100,7 @@ osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Ant
 ### 第 4 步：启用插件
 
 1. 按 `Cmd + Q` **完全退出** Antigravity。点窗口左上角的红色按钮只会关掉窗口，程序还在后台运行，这时再打开不会带上参数。
-2. 用第 3 步做的 **Antigravity-CDP** 图标打开 Antigravity。
+2. 用第 3 步做的启动器打开 Antigravity：方法一生成的是「应用程序」里的 **Antigravity-CDP**；方法二是你保存时起的名字；方法三是你添加到程序坞的那个快捷指令。
 3. 在 Antigravity 的 **Plugins** 面板里启用 **agy-capsule**。
 4. 在对话顶部点 **… → Extensions → agy-capsule**，打开侧栏。
 
@@ -103,7 +108,7 @@ osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Ant
 
 - 侧栏能看到上下文和 token 统计。
 - 输入框下方出现底栏胶囊，侧栏顶部没有「底栏胶囊未启用」的提示。
-- 如需进一步排查，可以在终端运行下面的命令。第一行输出是一个端口号，就说明调试端口已经打开：
+- 底栏胶囊没出现时，可以在终端运行下面的命令作为排查线索。第一行的数字是文件里记录的端口，可能来自上一次启动，不能证明这次已经打开；判断是否成功仍以底栏胶囊是否出现为准：
 
   ```sh
   cat ~/Library/Application\ Support/Antigravity/DevToolsActivePort
@@ -111,7 +116,7 @@ osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Ant
 
 ### 更新与卸载
 
-- **更新**：用 git 下载的，在 agy-capsule 文件夹里运行 `git pull`，再运行 `sh update.sh`。用压缩包下载的，重新下载并解压，然后在新文件夹里运行 `sh update.sh`。插件会自动重启，不用重新启用。
+- **更新**：用 git 下载的，在 agy-capsule 文件夹里运行 `git pull`，再运行 `sh update.sh`。用压缩包下载的，重新下载并解压，然后在新文件夹里运行 `sh update.sh`。插件会自动重启，不用重新启用；从不支持自动重载的旧版首次更新时，需手动重启插件一次。
 - **卸载**：在 agy-capsule 文件夹里运行 `sh uninstall.sh`。插件设置会保留。
 
 ### 遇到问题
@@ -146,13 +151,18 @@ This guide covers everything needed to use agy-capsule on a Mac: downloading, in
 If you are an AI assistant installing this for the user:
 
 1. Get the latest code:
-   - If the user already has an agy-capsule folder downloaded with git (it contains `.git`), run `git pull` in it.
-   - Otherwise `git clone` the repository to `~/agy-capsule`.
-   - If git isn't available, download and unzip a fresh copy of the main branch zip. Don't reuse an old unzipped folder in Downloads; it may be outdated.
+   - Reuse an existing agy-capsule git folder only if all of these hold: `git remote get-url origin` points to `https://github.com/Lumidarin/agy-capsule`, the current branch is `main`, and `git status --porcelain` prints nothing. If so, run `git pull --ff-only origin main`, then check that `git rev-parse HEAD` and `git rev-parse FETCH_HEAD` print the same commit. If they differ, the local branch has extra commits: use a new folder as in the next item instead, and don't reset the user's branch.
+   - Otherwise, or if there is no existing folder, `git clone` the repository into a new empty folder (for example `~/agy-capsule`; pick another name if it's taken). Don't touch the user's existing folder.
+   - If git isn't available, download and unzip a fresh copy of the main branch zip into a new folder. Don't reuse an old unzipped folder in Downloads; it may be outdated.
+   - If you can't get the latest code, stop and show the user the error. Don't install from old code.
 2. In that folder, run `sh install.sh` and confirm the output says "Installed/updated agy-capsule".
 3. Run the `osacompile` command from Step 3, Option 1 to create the `Antigravity-CDP` launcher.
 4. Don't modify the plugin files, the original `Antigravity.app` or Antigravity's settings, and don't install any other software.
 5. Don't quit or restart Antigravity. When you're done, tell the user, in their language, to do Step 4 themselves. If any step fails, show the user the error as-is.
+
+### Install it yourself
+
+Steps 1–4 below are for installing it yourself. If an AI installs it for you, you only need to do Step 4.
 
 ### Step 1: Download
 
@@ -222,7 +232,7 @@ An `Antigravity-CDP` app appears in your Applications folder.
 ### Step 4: Enable the plugin
 
 1. Press `Cmd + Q` to **quit** Antigravity completely. The red close button only closes the window; the app keeps running in the background, and reopening it then won't pass the flag.
-2. Open Antigravity with the **Antigravity-CDP** launcher from Step 3.
+2. Open Antigravity with the launcher from Step 3: Option 1 creates **Antigravity-CDP** in Applications; Option 2 uses the name you saved it under; Option 3 is the shortcut you added to the Dock.
 3. Enable **agy-capsule** in Antigravity's **Plugins** panel.
 4. Open **… → Extensions → agy-capsule** from the conversation header to show the sidebar.
 
@@ -230,7 +240,7 @@ An `Antigravity-CDP` app appears in your Applications folder.
 
 - The sidebar shows context and token stats.
 - The footer capsule appears under the input box, and there is no "Footer capsule is off" banner at the top of the sidebar.
-- To double-check from Terminal, run the command below. A port number on the first line confirms the debugging port is open:
+- If the footer capsule doesn't appear, the command below is a troubleshooting clue. The number on the first line is the port recorded in the file, which may come from an earlier launch, so it doesn't prove the port is open now; the capsule appearing is what confirms success:
 
   ```sh
   cat ~/Library/Application\ Support/Antigravity/DevToolsActivePort
@@ -238,7 +248,7 @@ An `Antigravity-CDP` app appears in your Applications folder.
 
 ### Updating and uninstalling
 
-- **Update**: if you used git, run `git pull` in the agy-capsule folder, then `sh update.sh`. If you used a zip, download and unpack it again, then run `sh update.sh` in the new folder. The plugin restarts itself; there's no need to enable it again.
+- **Update**: if you used git, run `git pull` in the agy-capsule folder, then `sh update.sh`. If you used a zip, download and unpack it again, then run `sh update.sh` in the new folder. The plugin restarts itself; there's no need to enable it again. The first update from an older version without automatic reload needs one manual plugin restart.
 - **Uninstall**: run `sh uninstall.sh` in the agy-capsule folder. Your preferences are kept.
 
 ### Troubleshooting

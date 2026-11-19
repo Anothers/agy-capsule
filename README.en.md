@@ -76,35 +76,13 @@ Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<co
 
 ### Windows
 
-1. Download or pull this repository and double-click `install.bat`.
-   If an Antigravity shortcut doesn't have the debugging switch yet, the script asks whether to add it (the footer capsule needs it). Press Enter to accept.
-2. **Quit Antigravity completely**, then open it from a shortcut.
-3. Enable **agy-capsule** in Antigravity's **Plugins** panel.
-4. Open **… → Extensions → agy-capsule** from the conversation header to show the sidebar.
+Follow the [Windows installation guide](./docs/windows-install.md#english). It covers downloading, installing, the footer capsule setup, updating, uninstalling and troubleshooting.
 
-| Action | How |
-|---|---|
-| Update | Pull or download the latest code, then double-click `update.bat` |
-| Uninstall | Double-click `uninstall.bat` |
+To have an AI install it, send this to Antigravity:
 
-The plugin lives in <code>%USERPROFILE%\.gemini\config\plugins\agy-capsule</code>; install and update remove stale files from older versions, and uninstall removes the plugin directory but keeps your preferences. After an update the plugin restarts itself and reconnects the sidebar, with nothing to do by hand. The first update from an older version without automatic reload needs one manual plugin restart.
-
-#### What if I move Antigravity?
-
-Open Antigravity once from its new location, then run `update.bat` again so the plugin picks up the new path. No separate Node installation is needed. If the plugin still fails to start, quit Antigravity completely and reopen it.
-
-#### Footer capsule doesn't appear
-
-The footer capsule attaches under the input box through Antigravity's debugging port. Newer Antigravity versions no longer open this port by default. Sidebar stats keep working, the capsule doesn't appear, and the sidebar shows "Footer capsule is off" at the top. To turn the port on:
-
-- **One step**: if you skipped the prompt during install or the switch was lost later, run this from the repository folder. It adds `--remote-debugging-port=0` to the Antigravity shortcuts on your desktop, Start menu and taskbar. Add `-Undo` to revert.
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
-  ```
-- **By hand**: add ` --remote-debugging-port=0` to the end of the shortcut's **Properties → Target**.
-
-Afterwards, **quit Antigravity completely** and open it from a shortcut. These launches skip the shortcut and won't carry the switch: an `antigravity://` link or Explorer's "Open with Antigravity" when no Antigravity window is open; Antigravity restarting itself after an auto-update; an update installer recreating the shortcuts (run the script again).
+```text
+Please install agy-capsule for me following https://github.com/Lumidarin/agy-capsule/blob/main/docs/windows-install.md
+```
 
 ### macOS
 
@@ -124,8 +102,6 @@ From the repository folder, run `sh install.sh` to install, `sh update.sh` to up
 
 > **The capsule disappeared after an Antigravity update — do I need to update agy-capsule?**
 > **No.** Antigravity's auto-update restarts itself without going through your shortcut (or your macOS launcher), so the debugging port isn't open for that launch. Just **quit Antigravity completely and reopen it from your shortcut** to restore the capsule. Once the capsule has worked on your machine before, agy-capsule recognizes this automatically: the sidebar banner clarifies no plugin update is needed (on Windows it also checks whether the installer wiped your shortcut switch and offers a one-click restore button), and an optional one-shot desktop notification alerts you once per launch (on by default in Settings).
-
-The debugging port only listens on this computer. While it's open, other programs on this computer can also control Antigravity windows through it; older Antigravity versions opened it by default anyway.
 
 ## Metric definitions
 
