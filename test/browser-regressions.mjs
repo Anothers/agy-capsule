@@ -317,3 +317,48 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+await test('Model picker submits one host option and releases the native trigger', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  await page.setContent('<textarea>draft</textarea><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div>');
+  const trigger = page.getByTestId('model-selector-trigger');
+  await trigger.evaluate(button => {
+    const options = ['Claude (Low)', 'Argon (Low)', 'Argon (High)', 'Fixed'].map(label => ({ label }));
+    options.push({ label: 'Disabled', disabled: true });
+    let selected = options[0];
+    window.calls = [];
+    button.__reactFiber$fixture = { memoizedProps: { conversationId: 'fixture', placement: 'top' }, return: {
+      memoizedProps: { value: {
+        visibleModelConfigs: options, getModelConfigForConversation: () => selected,
+        setModelConfigByLabelForConversation(label, conversation, persist) {
+          window.calls.push([label, conversation, persist]);
+          selected = options.find(option => option.label === label);
+        },
+      } },
+    } };
+  });
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const data = snapshot();
+  await apply(page, data);
+  const picker = page.locator('[data-el="modelPicker"]');
+  assert.equal(await picker.count(), 0);
+  data.prefs.modelEffortPicker = true;
+  await apply(page, data);
+  assert.equal(await trigger.evaluate(el => el.getBoundingClientRect().width), 22);
+  await picker.click();
+  assert.equal(await page.getByRole('button', { name: 'Disabled', exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Argon (High)', exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => window.calls), [['Argon (High)', 'fixture', false]]);
+  assert.equal(await picker.textContent(), 'Argon (High)');
+  assert.equal(await page.locator('textarea').inputValue(), 'draft');
+  await picker.click();
+  await trigger.evaluate(button => { button.__reactFiber$fixture.memoizedProps.conversationId = 'other'; });
+  await page.getByRole('button', { name: 'Fixed', exact: true }).click();
+  assert.equal(await page.evaluate(() => window.calls.length), 1);
+  data.prefs.modelEffortPicker = false;
+  await apply(page, data);
+  assert.equal(await picker.count(), 0);
+  assert.equal(await trigger.getAttribute('data-deck-model-bubble'), null);
+});

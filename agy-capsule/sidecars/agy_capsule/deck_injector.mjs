@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
+import { readPickerState, syncModelPicker } from './model_picker.mjs';
 import { createPresentation, getPresentationScript } from './ui.mjs';
 
 const { escapeHtml, appearance, cacheView, contextBreakdown, quotaView, makeRingSvg } = createPresentation();
@@ -56,6 +57,7 @@ function pageMount(d) {
     document.removeEventListener('click', node._onOutsideClick);
     document.removeEventListener('keydown', node._onEscape);
     if (node._onResize) window.removeEventListener('resize', node._onResize);
+    node._modelPicker?.dispose();
     node._modelObserver?.disconnect();
     node._resizeObserver?.disconnect();
     if (node._layoutRaf) cancelAnimationFrame(node._layoutRaf);
@@ -81,11 +83,11 @@ function pageMount(d) {
   }
 
   // Upgrade or initialize DOM structure in-place
-  if (root.getAttribute('data-deck-ver') !== '110') {
+  if (root.getAttribute('data-deck-ver') !== '111') {
     release(root);
     root._pinnedGroup = null;
     root.removeAttribute('data-pinned');
-    root.setAttribute('data-deck-ver', '110');
+    root.setAttribute('data-deck-ver', '111');
     root._speedActivity = null;
     root._motionPrev = null;
     root.style.cssText = [
@@ -110,6 +112,12 @@ function pageMount(d) {
 
     root.innerHTML = `
       <style>
+        #deck-metrics-strip [data-el="modelPicker"] { max-width: 12em; overflow: hidden; display: block; text-overflow: ellipsis; white-space: nowrap; }
+        .dk-model-options { position: fixed; inset: auto; margin: 0; padding: 8px; width: min(440px, calc(100vw - 8px)); overflow: auto; border-radius: 10px; border: 1px solid var(--border, GrayText); background: var(--background, Canvas); color: var(--foreground, CanvasText); font: inherit; }
+        .dk-model-options > div > div { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px; }
+        .dk-model-options span { flex: 1; }
+        .dk-model-options button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--border, GrayText); border-radius: 6px; padding: 3px 6px; cursor: pointer; }
+        .dk-model-options button[aria-pressed="true"] { background: Highlight; color: HighlightText; }
         #deck-metrics-strip, #deck-metrics-strip * { box-sizing: border-box; }
         #deck-metrics-strip .dk-grp {
           display: inline-flex;
@@ -656,6 +664,12 @@ function pageMount(d) {
       document.head.appendChild(nativeStyle);
     }
     nativeStyle.textContent = `
+        .agy-composer-footer button[data-deck-model-bubble] {
+          position: relative; width: 22px !important; min-width: 22px !important; max-width: 22px !important;
+          overflow: hidden; padding: 0 !important; font-size: 0 !important; border-radius: 999px;
+        }
+        .agy-composer-footer button[data-deck-model-bubble] > * { opacity: 0 !important; }
+        .agy-composer-footer button[data-deck-model-bubble]::after { content: '⋯'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; pointer-events: none; }
         .agy-composer-footer button[data-deck-turbo-collapsed="true"] {
           width: 28px !important; min-width: 28px !important; max-width: 28px !important;
           padding: 6px !important; gap: 0 !important; justify-content: center !important;
@@ -785,6 +799,7 @@ function pageMount(d) {
     footerLeft.appendChild(host);
   }
   const labels = presentation.apply(root, d.prefs);
+  syncModelPicker(root, footerLeft, d.prefs?.modelEffortPicker === true, labels.modelEffortPicker, findFooterLeft);
   presentation.renderContextTooltips(root, d.contextData, labels);
   const now = Date.now();
   const cancelBtnVisible = !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
@@ -1382,7 +1397,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, readPickerState, syncModelPicker, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const source = getPresentationScript() + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
   const code = `(()=>{const INSTANCE_TS=${Number(owner)};if(globalThis.__agyCapsuleDeck?.owner>INSTANCE_TS)return 'superseded';${getPresentationScript()}\nconst {escapeHtml,appearance,cacheView,contextBreakdown,quotaView,makeRingSvg}=globalThis.__agyCapsulePresentation;\n${functions}\nreturn installRuntime(INSTANCE_TS,${JSON.stringify(hash)});})()`;

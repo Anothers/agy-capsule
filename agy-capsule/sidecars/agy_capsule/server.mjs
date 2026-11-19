@@ -16,7 +16,7 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
-const PANEL_VERSION = 111;
+const PANEL_VERSION = 112;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1248,6 +1248,7 @@ const UI_HTML = `<!DOCTYPE html>
     ])}
 
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
+    ${renderCheckCard({ id: 'setting-model-effort-picker', key: 'modelEffortPicker' })}
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}
     ${renderCheckCard({ id: 'setting-hide-unavailable-quota', key: 'hideUnavailableQuota', checked: DEFAULT_SETTINGS.hideUnavailableQuota })}
     <div class="setting-card setting-threshold-card" data-setting-card="showCacheWarnings" data-checked="${DEFAULT_SETTINGS.showCacheWarnings}">
