@@ -98,7 +98,8 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
   ```
-- **手动**：在快捷方式「属性 → 目标」末尾加上 ` --remote-debugging-port=0`。macOS 可用 `open -a Antigravity --args --remote-debugging-port=0` 启动。
+- **Windows 手动设置**：在快捷方式「属性 → 目标」末尾加上 ` --remote-debugging-port=0`。
+- **macOS 图标启动（免每次开终端）**：详见 [macOS 设置指南](./docs/macos-cdp.md#中文)（用系统自带「自动操作」或「快捷指令」做一次启动图标即可；临时从终端启动可用 `open -a Antigravity --args --remote-debugging-port=0`）。
 
 改完后要**完全退出** Antigravity 再从快捷方式打开。以下启动方式不经过快捷方式，不会带上参数：点 `antigravity://` 链接或在资源管理器里「用 Antigravity 打开」时恰好没有窗口在运行；Antigravity 自动更新后自行重启；更新安装器重建了快捷方式（需要再运行一次脚本）。
 

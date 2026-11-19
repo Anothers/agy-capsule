@@ -97,7 +97,8 @@ The footer capsule attaches under the input box through Antigravity's debugging 
   ```powershell
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
   ```
-- **By hand**: add ` --remote-debugging-port=0` to the end of the shortcut's **Properties → Target**. On macOS, start it with `open -a Antigravity --args --remote-debugging-port=0`.
+- **Windows, by hand**: add ` --remote-debugging-port=0` to the end of the shortcut's **Properties → Target**.
+- **macOS launcher icon (no Terminal needed each time)**: see the [macOS setup guide](./docs/macos-cdp.md#english) to create a one-time Automator or Shortcuts launcher (or start once from Terminal with `open -a Antigravity --args --remote-debugging-port=0`).
 
 Afterwards, **quit Antigravity completely** and open it from a shortcut. These launches skip the shortcut and won't carry the switch: an `antigravity://` link or Explorer's "Open with Antigravity" when no Antigravity window is open; Antigravity restarting itself after an auto-update; an update installer recreating the shortcuts (run the script again).
 
