@@ -18,7 +18,10 @@
 
 如果你是替用户安装的 AI 助手，请按以下要求操作：
 
-1. 如果用户电脑上已有 agy-capsule 文件夹（通常在「下载」里），就用它；没有的话，把仓库 `git clone` 到 `~/agy-capsule`。没有 git 的话，下载 main 分支的 zip 并解压。
+1. 准备最新版代码：
+   - 用户电脑上已有用 git 下载的 agy-capsule 文件夹（文件夹里有 `.git`），就在里面运行 `git pull`。
+   - 没有的话，把仓库 `git clone` 到 `~/agy-capsule`。
+   - 没有 git 的话，重新下载 main 分支的 zip 并解压。即使「下载」里已经有旧的解压文件夹，也不要用它，那可能是旧版。
 2. 在这个文件夹里运行 `sh install.sh`，确认输出里有「已安装/更新 agy-capsule」。
 3. 运行第 3 步「方法一」的 `osacompile` 命令，生成 `Antigravity-CDP` 启动图标。
 4. 不要修改插件文件、原版 `Antigravity.app` 和 Antigravity 的设置，也不要自行安装其他软件。
@@ -142,7 +145,10 @@ This guide covers everything needed to use agy-capsule on a Mac: downloading, in
 
 If you are an AI assistant installing this for the user:
 
-1. If the user already has an agy-capsule folder (usually in Downloads), use it. Otherwise `git clone` the repository to `~/agy-capsule`, or download and unzip the main branch zip if git isn't available.
+1. Get the latest code:
+   - If the user already has an agy-capsule folder downloaded with git (it contains `.git`), run `git pull` in it.
+   - Otherwise `git clone` the repository to `~/agy-capsule`.
+   - If git isn't available, download and unzip a fresh copy of the main branch zip. Don't reuse an old unzipped folder in Downloads; it may be outdated.
 2. In that folder, run `sh install.sh` and confirm the output says "Installed/updated agy-capsule".
 3. Run the `osacompile` command from Step 3, Option 1 to create the `Antigravity-CDP` launcher.
 4. Don't modify the plugin files, the original `Antigravity.app` or Antigravity's settings, and don't install any other software.
