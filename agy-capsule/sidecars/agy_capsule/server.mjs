@@ -16,7 +16,7 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
-const PANEL_VERSION = 109;
+const PANEL_VERSION = 111;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -527,13 +527,14 @@ const renderCheckCard = ({ id, helpId = id, key, tip = '', checked = false, prev
     ${tip ? `<div class="metric-help" id="help-${helpId}" role="tooltip" data-i18n="${tip}"></div>` : ''}
   </div>`;
 
-const renderPickCard = (key, items) => `
-  <div class="setting-card" data-setting-card="${key}">
-    <div class="setting-head"><span class="setting-label" data-i18n="${key}"></span>
+const renderPickCard = (key, items, { helpId = key, tip = '' } = {}) => `
+  <div class="setting-card${tip ? ' metric-setting' : ''}" data-setting-card="${key}">
+    <div class="setting-head"><span class="setting-label" data-i18n="${key}"></span>${tip ? `<span class="setting-help-dot" aria-hidden="true">?</span>` : ''}
       <div class="pv-pick-inline">
-        ${items.map(([val, labelKey, iconHtml]) => `<button type="button" class="pv-swatch pv-swatch-icon" data-pick-setting="${key}" data-pick-value="${val}" data-pick-label="${labelKey}">${iconHtml}</button>`).join('')}
+        ${items.map(([val, labelKey, iconHtml]) => `<button type="button" class="pv-swatch pv-swatch-icon" data-pick-setting="${key}" data-pick-value="${val}" data-pick-label="${labelKey}"${tip ? ` aria-describedby="help-${helpId}"` : ''}>${iconHtml}</button>`).join('')}
       </div>
     </div>
+    ${tip ? `<div class="metric-help" id="help-${helpId}" role="tooltip" data-i18n="${tip}"></div>` : ''}
   </div>`;
 
 // Segmented option control styled like the settings switches.
@@ -854,7 +855,6 @@ const UI_HTML = `<!DOCTYPE html>
     @media(prefers-reduced-motion:reduce) { .sidebar-toggle-thumb { transition: none; } }
     @media(pointer:coarse) { .sidebar-tabs button { min-height: 44px; } }
     .nowrap { white-space: nowrap; }
-    .settings-note { margin: 2px 2px 8px; font-size: 11px; line-height: 1.45; color: var(--muted-foreground, #8e8e93); }
     .settings-scope { margin-top: 8px; padding: 10px 0 4px; border-top: 1px solid var(--border, rgba(142,142,147,.22)); font-size: 12px; font-weight: 600; color: var(--muted-foreground, #8e8e93); letter-spacing: .01em; }
     .settings-scope.metric-setting { position: relative; }
     .settings-scope-title { font-size: 12px; font-weight: 600; color: var(--muted-foreground, #8e8e93); }
@@ -866,7 +866,11 @@ const UI_HTML = `<!DOCTYPE html>
     .setting-head.setting-pair-head { justify-content: flex-start; gap: 14px; flex-wrap: nowrap; }
     .setting-pair-item { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
     .setting-pair-item .setting-check { flex: 0 1 auto; }
-    .setting-speed-pair .setting-help-dot { margin-left: auto; }
+    .metric-setting > .setting-head { justify-content: flex-start; }
+    .metric-setting > .setting-head > .setting-check { flex: 0 1 auto; }
+    .setting-head.setting-pair-head > .setting-help-dot { margin-left: -8px; }
+    .setting-option-card.metric-setting > .setting-head { flex-wrap: wrap; row-gap: 6px; }
+    .setting-opts-with-help { display: inline-flex; align-items: center; gap: 6px; }
     .pv-detail-pop { overflow: hidden; max-height: 120px; opacity: 1; margin: 2px 0 6px; transition: max-height .2s ease, opacity .18s ease, margin .2s ease; }
     .pv-detail-pop[data-open="false"] { max-height: 0; opacity: 0; margin: 0; pointer-events: none; }
     .pv-detail-card { padding: 7px 9px; border-radius: 7px; border: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.28)) 70%, transparent); background: color-mix(in srgb, var(--foreground, #ebebeb) 4%, var(--background, #141414)); font-size: 11.5px; color: var(--muted-foreground, #8e8e93); font-variant-numeric: tabular-nums; }
@@ -894,7 +898,6 @@ const UI_HTML = `<!DOCTYPE html>
     .setting-option-card:not([data-layout="columns"]) [data-for-layout="columns"],
     .setting-option-card:not([data-layout="rows"]) [data-for-layout="rows"] { display: none; }
     .setting-option-card[data-checked="false"] .setting-opts { opacity: .45; pointer-events: none; }
-    .setting-option-card .setting-help-dot { margin-left: auto; }
     .setting-opts-extra { display: inline-flex; }
     .setting-seg { display: inline-flex; flex-shrink: 0; padding: 2px; gap: 2px; border-radius: 6px; background: color-mix(in srgb, var(--foreground, #ebebeb) 6%, transparent); border: 1px solid color-mix(in srgb, var(--foreground, #ebebeb) 12%, transparent); }
     .setting-seg-opt { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 17px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted-foreground, #8e8e93); font: inherit; cursor: pointer; transition: background .18s ease, color .18s ease, border-color .18s ease; }
@@ -1214,8 +1217,7 @@ const UI_HTML = `<!DOCTYPE html>
       ['en', '', 'EN'],
       ['zh-CN', '', '简'],
       ['zh-TW', '', '繁'],
-    ])}
-    <p class="settings-note" data-i18n="languageScopeNote"></p>
+    ], { helpId: 'language-scope', tip: 'languageScopeNote' })}
 
     <div class="settings-scope" data-i18n="appearanceSection"></div>
     ${renderPickCard('panelLayout', [
@@ -1313,8 +1315,10 @@ const UI_HTML = `<!DOCTYPE html>
     <div class="setting-card setting-option-card metric-setting" data-setting-card="showTurnMetrics" data-layout-key="turnLayout" data-checked="${DEFAULT_SETTINGS.showTurnMetrics}" data-layout="columns">
       <div class="setting-head setting-pair-head">
         <div class="setting-pair-item"><label class="setting-check"><input id="setting-show-turn-metrics" name="showTurnMetrics" type="checkbox"${DEFAULT_SETTINGS.showTurnMetrics ? ' checked' : ''} aria-describedby="help-turn-metrics" /><span data-i18n="showTurnMetrics"></span></label></div>
-        <div class="setting-opts">${renderSeg('turnLayout', LAYOUT_OPTIONS)}<span class="setting-opts-extra" data-for-layout="rows">${renderSeg('turnMarker', MARKER_OPTIONS)}</span></div>
-        <span class="setting-help-dot" aria-hidden="true">?</span>
+        <div class="setting-opts-with-help">
+          <div class="setting-opts">${renderSeg('turnLayout', LAYOUT_OPTIONS)}<span class="setting-opts-extra" data-for-layout="rows">${renderSeg('turnMarker', MARKER_OPTIONS)}</span></div>
+          <span class="setting-help-dot" aria-hidden="true">?</span>
+        </div>
       </div>
       <div class="metric-help" id="help-turn-metrics" role="tooltip" data-i18n="turnSectionTip"></div>
     </div>
