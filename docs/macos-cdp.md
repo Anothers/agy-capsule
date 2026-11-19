@@ -1,17 +1,64 @@
-# macOS 启用底栏胶囊（调试端口） / Enabling the Footer Capsule on macOS
+# macOS 安装指南 / macOS Installation Guide
 
 [中文](#中文) | [English](#english)
 
 ## 中文
 
-macOS 的替身（快捷方式）不能像 Windows 那样直接附带启动参数，所以如果不想每次都从终端启动，可以自己做一个**带参数的启动图标**。设置一次即可，以后直接点它打开 Antigravity。
+本指南包含在 Mac 上使用 agy-capsule 的全部步骤：下载、安装插件、让底栏胶囊显示出来、启用插件，以及之后的更新、卸载和排查。
 
-### 第 0 步：先彻底退出 Antigravity
+> **最省事的办法：让 Antigravity 替你装**
+>
+> 如果你不常用终端，可以在 Antigravity 里新开一个对话，把下面这段话原样发给它。它会帮你完成第 1～3 步。
+>
+> ```text
+> 请按 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md 帮我安装 agy-capsule：
+> 1. 如果我电脑上已经有 agy-capsule 文件夹（通常在「下载」里），就用它；没有的话，把仓库 git clone 到 ~/agy-capsule。没有 git 的话，下载 main 分支的 zip 并解压。
+> 2. 在这个文件夹里运行 sh install.sh，确认输出里有「已安装/更新 agy-capsule」。
+> 3. 用指南第 3 步「方法一」的 osacompile 命令，在「应用程序」文件夹里做一个 Antigravity-CDP 启动图标。不要修改原版 Antigravity 应用。
+> 4. 不要修改插件文件，也不要改 Antigravity 的设置。最后用中文告诉我还需要手动做什么。
+> ```
+>
+> 它做完后，你只需要自己完成[第 4 步](#第-4-步启用插件)。AI 没法替你重启 Antigravity，因为它自己就运行在 Antigravity 里。
 
-按 `Cmd + Q` 退出 Antigravity。  
-注意：点窗口左上角的红色关闭按钮只会关掉窗口，程序仍在后台运行；如果后台已有进程，再次启动时附带的参数不会生效。
+### 第 1 步：下载
 
-### 方法一：用「自动操作」做启动图标（推荐，所有 macOS 版本可用）
+两种方式任选一种：
+
+- **用 git**（以后更新最方便）：打开「终端」，运行
+  ```sh
+  git clone https://github.com/Lumidarin/agy-capsule.git ~/agy-capsule
+  ```
+- **下载压缩包**：打开 [仓库主页](https://github.com/Lumidarin/agy-capsule)，点绿色的 **Code → Download ZIP**，然后双击解压。
+
+### 第 2 步：用终端运行安装脚本
+
+> **注意：不要双击 `install.sh`。** macOS 双击 `.sh` 只会用文本编辑器打开它，脚本并不会运行，插件也就没有装上。
+
+1. 按 `Cmd + 空格`，搜索并打开 **终端**。
+2. 输入 `cd `（`cd` 后面有一个空格），把 agy-capsule 文件夹拖进终端窗口，按回车。用 git 下载的话，直接输入 `cd ~/agy-capsule` 也可以。
+3. 输入下面这行并按回车：
+   ```sh
+   sh install.sh
+   ```
+   看到「已安装/更新 agy-capsule 到 …」就说明装好了。
+
+### 第 3 步：做一个带参数的启动图标（让底栏胶囊显示）
+
+输入框下方的底栏胶囊，需要 Antigravity 带上 `--remote-debugging-port=0` 参数启动才能显示。不做这一步，侧栏统计照样能用，只是底栏胶囊不会出现。
+
+macOS 的替身（快捷方式）不能像 Windows 那样直接附带启动参数，所以需要自己做一个**带参数的启动图标**。只用做一次，以后都从这个图标打开 Antigravity。下面三种方法任选一种。
+
+#### 方法一：终端一行命令（最快，也适合让 AI 代做）
+
+在终端运行：
+
+```sh
+osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Antigravity --args --remote-debugging-port=0"'
+```
+
+运行后，「应用程序」文件夹里会多出一个 `Antigravity-CDP`。
+
+#### 方法二：用「自动操作」（所有 macOS 版本可用）
 
 1. 按 `Cmd + 空格`，搜索并打开 **自动操作**（Automator）。
 2. 点击 **新建文稿**，类型选择 **应用程序**。
@@ -23,12 +70,8 @@ macOS 的替身（快捷方式）不能像 Windows 那样直接附带启动参�
    ```
 
 5. 按 `Cmd + S` 保存，名字随便起（例如 `Antigravity-CDP`），保存到 **应用程序** 文件夹。
-6. 以后双击这个新图标启动 Antigravity 即可，也可以把它拖到程序坞（Dock）里方便点击。
 
-> **可选：换成原版图标**  
-> 在「应用程序」文件夹里选中原版 `Antigravity` 按 `Cmd + I`，点信息窗口左上角的小图标后按 `Cmd + C`；再选中新建的 `Antigravity-CDP` 按 `Cmd + I`，点左上角小图标后按 `Cmd + V`。
-
-### 方法二：用「快捷指令」（需要 macOS 14 Sonoma 或更新版本）
+#### 方法三：用「快捷指令」（需要 macOS 14 Sonoma 或更新版本）
 
 1. 打开 **快捷指令** App，先到 **设置 → 高级** 中勾选 **允许运行脚本**（不勾选会运行失败）。
 2. 新建一个快捷指令，添加 **运行 Shell 脚本** 操作，填入同一行命令：
@@ -39,36 +82,103 @@ macOS 的替身（快捷方式）不能像 Windows 那样直接附带启动参�
 
 3. 点菜单栏 **文件 → 添加到程序坞**。
 
-### 怎么确认设置成功
+> **可选：换成原版图标**
+> 在「应用程序」文件夹里选中原版 `Antigravity`，按 `Cmd + I`，点信息窗口左上角的小图标，再按 `Cmd + C`。然后选中新做的 `Antigravity-CDP`，按 `Cmd + I`，点左上角的小图标，再按 `Cmd + V`。也可以把新图标拖到程序坞（Dock）里，方便点击。
 
-用新图标启动 Antigravity 后：
+### 第 4 步：启用插件
 
-- 输入框下方的底栏胶囊正常显示，且侧栏顶部的「底栏胶囊未启用」提示消失，即说明成功。
-- 如需进一步排查，可在终端运行以下命令，能看到第一行输出端口号即表示调试端口已正常开启：
+1. 按 `Cmd + Q` **完全退出** Antigravity。点窗口左上角的红色按钮只会关掉窗口，程序还在后台运行，这时再打开不会带上参数。
+2. 用第 3 步做的 **Antigravity-CDP** 图标打开 Antigravity。
+3. 在 Antigravity 的 **Plugins** 面板里启用 **agy-capsule**。
+4. 在对话顶部点 **… → Extensions → agy-capsule**，打开侧栏。
+
+### 怎么确认成功
+
+- 侧栏能看到上下文和 token 统计。
+- 输入框下方出现底栏胶囊，侧栏顶部没有「底栏胶囊未启用」的提示。
+- 如需进一步排查，可以在终端运行下面的命令。第一行输出是一个端口号，就说明调试端口已经打开：
 
   ```sh
   cat ~/Library/Application\ Support/Antigravity/DevToolsActivePort
   ```
 
+### 更新与卸载
+
+- **更新**：用 git 下载的，在 agy-capsule 文件夹里运行 `git pull`，再运行 `sh update.sh`。用压缩包下载的，重新下载并解压，然后在新文件夹里运行 `sh update.sh`。插件会自动重启，不用重新启用。
+- **卸载**：在 agy-capsule 文件夹里运行 `sh uninstall.sh`。插件设置会保留。
+
+### 遇到问题
+
+- **Plugins 面板里找不到插件**：先确认第 2 步是在终端里运行的，不是双击运行的。然后在终端运行 `ls ~/.gemini/config/plugins`，输出里应该有 `agy-capsule`。
+- **侧栏打不开或一片空白**：请[提交 issue](https://github.com/Lumidarin/agy-capsule/issues)，附上日志文件 `~/.gemini/antigravity/sidecar_data/agy-capsule/agy_capsule/logs/sidecar.log`。在访达里按 `Cmd + Shift + G`，粘贴这个路径，就能找到这个文件。
+- **侧栏顶部有提示**：按提示操作即可。解决不了的话，提 issue 时附上提示的截图。
+
 ### 注意事项
 
-- **程序坞出现两个图标是正常的**：新图标只负责带参数拉起真正的 Antigravity，拉起后自身就会退出，运行中的依然是原版图标。建议把原来常驻的程序坞图标移除，以后只点新图标启动，免得点错。
-- **不经过新图标的启动不会带参数**：例如在没有 Antigravity 窗口运行时点 `antigravity://` 链接、从访达「打开方式」冷启动，或 Antigravity 自动更新后自行重启。遇到底栏胶囊消失时，按 `Cmd + Q` 彻底退出后，再用新图标打开一次即可。
-- **不要修改 `Antigravity.app` 内部文件**：会破坏应用签名导致无法打开，而且更新后也会被还原。
-- **安全说明**：调试端口只监听本机（`--remote-debugging-port=0` 会由系统自动分配空闲本机端口，避免占用固定端口）。打开后，本机上的其他程序也可以通过它控制 Antigravity 窗口；请只在信任的个人电脑上使用。
+- **程序坞出现两个图标是正常的**：新图标只负责带参数拉起真正的 Antigravity，拉起后自己就退出了，运行中的仍然是原版图标。建议把原来常驻程序坞的图标移除，以后只点新图标，免得点错。
+- **不经过新图标的启动不会带参数**：例如没有 Antigravity 窗口运行时点 `antigravity://` 链接，从访达「打开方式」冷启动，或者 Antigravity 自动更新后自行重启。底栏胶囊消失时，按 `Cmd + Q` 彻底退出，再用新图标打开一次即可，不需要更新插件。
+- **不要修改 `Antigravity.app` 内部的文件**：会破坏应用签名，导致应用无法打开，而且更新后也会被还原。
+- **安全说明**：调试端口只监听本机。用 `--remote-debugging-port=0` 时，系统会自动分配一个空闲的本机端口，不会占用固定端口。端口打开期间，本机上的其他程序也可以通过它控制 Antigravity 窗口，请只在你信任的个人电脑上使用。
 
 ---
 
 ## English
 
-macOS aliases cannot pass command-line flags like Windows shortcuts do. To avoid launching Antigravity from Terminal every time, create a small **launcher icon** once and open Antigravity from it going forward.
+This guide covers everything needed to use agy-capsule on a Mac: downloading, installing the plugin, showing the footer capsule, enabling the plugin, and later updating, uninstalling and troubleshooting.
 
-### Step 0: Quit Antigravity completely
+> **Easiest: let Antigravity install it for you**
+>
+> If you don't use Terminal much, start a new conversation in Antigravity and send it the message below as-is. It will handle steps 1–3.
+>
+> ```text
+> Please install agy-capsule following https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md:
+> 1. If I already have an agy-capsule folder (usually in Downloads), use it. Otherwise git clone the repository to ~/agy-capsule, or download and unzip the main branch zip if git isn't available.
+> 2. In that folder, run sh install.sh and confirm the output says "Installed/updated agy-capsule".
+> 3. Use the osacompile command from Step 3, Option 1 of the guide to create an Antigravity-CDP launcher in the Applications folder. Don't modify the original Antigravity app.
+> 4. Don't modify the plugin files or Antigravity's settings. Finally, tell me what I still need to do by hand.
+> ```
+>
+> When it's done, you only need to do [Step 4](#step-4-enable-the-plugin) yourself. The AI can't restart Antigravity for you, because it runs inside Antigravity.
 
-Press `Cmd + Q` to quit Antigravity.  
-Clicking the red close button only closes the window while the app keeps running in the background; if an existing process is still running, newly passed flags are ignored.
+### Step 1: Download
 
-### Option 1: Automator app (recommended, works on all macOS versions)
+Pick one:
+
+- **With git** (easiest to update later): open **Terminal** and run
+  ```sh
+  git clone https://github.com/Lumidarin/agy-capsule.git ~/agy-capsule
+  ```
+- **As a zip**: on the [repository page](https://github.com/Lumidarin/agy-capsule), click the green **Code → Download ZIP**, then double-click the zip to unpack it.
+
+### Step 2: Run the installer in Terminal
+
+> **Don't double-click `install.sh`.** On macOS, double-clicking a `.sh` file only opens it in a text editor. The script doesn't run, so the plugin isn't installed.
+
+1. Press `Cmd + Space`, search for **Terminal** and open it.
+2. Type `cd ` (with a trailing space), drag the agy-capsule folder into the Terminal window, and press Return. If you used git, typing `cd ~/agy-capsule` works too.
+3. Type the line below and press Return:
+   ```sh
+   sh install.sh
+   ```
+   "Installed/updated agy-capsule at …" means it worked.
+
+### Step 3: Create a launcher with the debugging flag (for the footer capsule)
+
+The footer capsule under the input box only appears when Antigravity starts with `--remote-debugging-port=0`. Without this step the sidebar stats still work; only the footer capsule is missing.
+
+macOS aliases can't pass command-line flags the way Windows shortcuts do, so create a **launcher icon** once and open Antigravity from it from now on. Pick any of the three options below.
+
+#### Option 1: One Terminal command (fastest, and easy for an AI to do)
+
+Run this in Terminal:
+
+```sh
+osacompile -o /Applications/Antigravity-CDP.app -e 'do shell script "open -a Antigravity --args --remote-debugging-port=0"'
+```
+
+An `Antigravity-CDP` app appears in your Applications folder.
+
+#### Option 2: Automator app (works on all macOS versions)
 
 1. Press `Cmd + Space`, search for **Automator**, and open it.
 2. Click **New Document** and choose **Application**.
@@ -80,14 +190,10 @@ Clicking the red close button only closes the window while the app keeps running
    ```
 
 5. Press `Cmd + S`, give it a name (for example, `Antigravity-CDP`), and save it to your **Applications** folder.
-6. Double-click this launcher whenever you open Antigravity, or drag it into your Dock.
 
-> **Optional: reuse the Antigravity icon**  
-> Select the original `Antigravity` app in Applications and press `Cmd + I`, click the small icon in the top-left corner of the Info window, and press `Cmd + C`. Select your new `Antigravity-CDP` app, press `Cmd + I`, click its top-left icon, and press `Cmd + V`.
+#### Option 3: Shortcuts (requires macOS 14 Sonoma or later)
 
-### Option 2: Shortcuts (requires macOS 14 Sonoma or later)
-
-1. Open the **Shortcuts** app, go to **Settings → Advanced**, and enable **Allow Running Scripts** (required or the shortcut will fail).
+1. Open the **Shortcuts** app, go to **Settings → Advanced**, and enable **Allow Running Scripts** (required, or the shortcut will fail).
 2. Create a new shortcut, add the **Run Shell Script** action, and paste the same command:
 
    ```sh
@@ -96,20 +202,40 @@ Clicking the red close button only closes the window while the app keeps running
 
 3. From the menu bar, choose **File → Add to Dock**.
 
+> **Optional: reuse the Antigravity icon**
+> Select the original `Antigravity` app in Applications and press `Cmd + I`. Click the small icon in the top-left corner of the Info window and press `Cmd + C`. Then select your new `Antigravity-CDP` app, press `Cmd + I`, click its top-left icon, and press `Cmd + V`. You can also drag the launcher into your Dock for quick access.
+
+### Step 4: Enable the plugin
+
+1. Press `Cmd + Q` to **quit** Antigravity completely. The red close button only closes the window; the app keeps running in the background, and reopening it then won't pass the flag.
+2. Open Antigravity with the **Antigravity-CDP** launcher from Step 3.
+3. Enable **agy-capsule** in Antigravity's **Plugins** panel.
+4. Open **… → Extensions → agy-capsule** from the conversation header to show the sidebar.
+
 ### How to verify
 
-After opening Antigravity with your new launcher:
-
-- The footer capsule appears under the input box and the "Footer capsule is off" banner in the sidebar disappears.
-- To double-check from Terminal, run the command below; seeing a port number on the first line confirms the debugging port is active:
+- The sidebar shows context and token stats.
+- The footer capsule appears under the input box, and there is no "Footer capsule is off" banner at the top of the sidebar.
+- To double-check from Terminal, run the command below. A port number on the first line confirms the debugging port is open:
 
   ```sh
   cat ~/Library/Application\ Support/Antigravity/DevToolsActivePort
   ```
 
+### Updating and uninstalling
+
+- **Update**: if you used git, run `git pull` in the agy-capsule folder, then `sh update.sh`. If you used a zip, download and unpack it again, then run `sh update.sh` in the new folder. The plugin restarts itself; there's no need to enable it again.
+- **Uninstall**: run `sh uninstall.sh` in the agy-capsule folder. Your preferences are kept.
+
+### Troubleshooting
+
+- **The plugin isn't in the Plugins panel**: make sure Step 2 was run in Terminal, not by double-clicking. Then run `ls ~/.gemini/config/plugins` in Terminal; the output should include `agy-capsule`.
+- **The sidebar won't open or is blank**: please [open an issue](https://github.com/Lumidarin/agy-capsule/issues) and attach the log file `~/.gemini/antigravity/sidecar_data/agy-capsule/agy_capsule/logs/sidecar.log`. In Finder, press `Cmd + Shift + G` and paste that path to find it.
+- **The sidebar shows a notice**: follow what it says. If that doesn't fix it, attach a screenshot of the notice to your issue.
+
 ### Notes
 
-- **Seeing a second Antigravity icon in the Dock is normal**: the launcher only starts Antigravity with the flag and exits immediately, leaving the real Antigravity icon running. You can remove the original pinned icon from the Dock so you don't click it by mistake.
-- **Launches that bypass the launcher won't carry the flag**: opening an `antigravity://` link or using Finder's "Open With" when no window is running, or Antigravity restarting itself after an auto-update. If the capsule disappears, press `Cmd + Q` and reopen via the launcher.
-- **Do not edit files inside `Antigravity.app`**: doing so breaks its code signature and will be overwritten by updates.
-- **Security**: the debugging port listens on localhost only (`--remote-debugging-port=0` lets the OS pick a free local port to avoid conflicts). While open, other programs on this computer can also control Antigravity windows; use it only on a computer you trust.
+- **Seeing a second Antigravity icon in the Dock is normal**: the launcher only starts Antigravity with the flag and then exits, leaving the real Antigravity icon running. You can remove the original pinned icon from the Dock so you don't click it by mistake.
+- **Launches that bypass the launcher won't carry the flag**: opening an `antigravity://` link or using Finder's "Open With" when no window is running, or Antigravity restarting itself after an auto-update. If the capsule disappears, press `Cmd + Q` and reopen via the launcher. No plugin update is needed.
+- **Don't edit files inside `Antigravity.app`**: doing so breaks its code signature so the app won't open, and updates overwrite the changes anyway.
+- **Security**: the debugging port listens on localhost only. With `--remote-debugging-port=0` the OS picks a free local port, so no fixed port is taken. While it's open, other programs on this computer can also control Antigravity windows; use it only on a computer you trust.

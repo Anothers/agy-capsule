@@ -74,9 +74,15 @@ Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<co
 
 ## Installation
 
+> **macOS users**: follow the [macOS installation guide](./docs/macos-cdp.md#english). If you don't use Terminal, send this to Antigravity and let it install for you:
+>
+> ```text
+> Please read https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md and install agy-capsule for me as described in its "Let Antigravity install it for you" section.
+> ```
+
 1. Download or pull this repository, then run the appropriate script:
 
-   | Action | Windows | macOS / Linux |
+   | Action | Windows | Linux |
    |---|---|---|
    | Install | `install.bat` | `sh install.sh` |
    | Update | `update.bat` (pull the latest code first) | `sh update.sh` (pull the latest code first) |
@@ -103,7 +109,7 @@ The footer capsule attaches under the input box through Antigravity's debugging 
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
   ```
 - **Windows, by hand**: add ` --remote-debugging-port=0` to the end of the shortcut's **Properties → Target**.
-- **macOS launcher icon (no Terminal needed each time)**: see the [macOS setup guide](./docs/macos-cdp.md#english) to create a one-time Automator or Shortcuts launcher (or start once from Terminal with `open -a Antigravity --args --remote-debugging-port=0`).
+- **macOS**: see Step 3 of the [macOS installation guide](./docs/macos-cdp.md#english) to create a launcher with the switch.
 
 Afterwards, **quit Antigravity completely** and open it from a shortcut. These launches skip the shortcut and won't carry the switch: an `antigravity://` link or Explorer's "Open with Antigravity" when no Antigravity window is open; Antigravity restarting itself after an auto-update; an update installer recreating the shortcuts (run the script again).
 

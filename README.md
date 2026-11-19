@@ -75,9 +75,15 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ## 安装
 
+> **macOS 用户**：请按 [macOS 安装指南](./docs/macos-cdp.md#中文) 安装。不熟悉终端的话，可以把这句话发给 Antigravity，让它代装：
+>
+> ```text
+> 请阅读 https://github.com/Lumidarin/agy-capsule/blob/main/docs/macos-cdp.md ，按开头「让 Antigravity 替你装」的说明帮我安装 agy-capsule。
+> ```
+
 1. 下载或拉取仓库后，运行对应脚本：
 
-   | 操作 | Windows | macOS / Linux |
+   | 操作 | Windows | Linux |
    |---|---|---|
    | 安装 | `install.bat` | `sh install.sh` |
    | 更新 | `update.bat`（先拉取新版代码） | `sh update.sh`（先拉取新版代码） |
@@ -104,7 +110,7 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
   powershell -ExecutionPolicy Bypass -File scripts\enable-cdp.ps1
   ```
 - **Windows 手动设置**：在快捷方式「属性 → 目标」末尾加上 ` --remote-debugging-port=0`。
-- **macOS 图标启动（免每次开终端）**：详见 [macOS 设置指南](./docs/macos-cdp.md#中文)（用系统自带「自动操作」或「快捷指令」做一次启动图标即可；临时从终端启动可用 `open -a Antigravity --args --remote-debugging-port=0`）。
+- **macOS**：见 [macOS 安装指南](./docs/macos-cdp.md#中文) 第 3 步，做一个带参数的启动图标。
 
 改完后要**完全退出** Antigravity 再从快捷方式打开。以下启动方式不经过快捷方式，不会带上参数：点 `antigravity://` 链接或在资源管理器里「用 Antigravity 打开」时恰好没有窗口在运行；Antigravity 自动更新后自行重启；更新安装器重建了快捷方式（需要再运行一次脚本）。
 
