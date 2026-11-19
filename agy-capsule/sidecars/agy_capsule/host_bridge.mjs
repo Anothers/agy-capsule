@@ -30,11 +30,11 @@ export function installAsyncHostRoutes(app, options = {}) {
     if (data.title) args.push('--title', data.title);
     args.push(data.conversationId, data.message);
     return run(args, { projectId: data.projectId });
-  });
+  }, 'POST');
   app.api('/_sidecar/new-conversation', (data = {}) =>
-    run(['new-conversation', '--model', data.model || 'flash', data.message], { projectId: data.projectId }));
+    run(['new-conversation', '--model', data.model || 'flash', data.message], { projectId: data.projectId }), 'POST');
   app.api('/_sidecar/get-conversation-metadata', (data = {}) =>
-    run(['get-conversation-metadata', data.conversationId]));
+    run(['get-conversation-metadata', data.conversationId]), 'POST');
 }
 
 // The host may close our stdio pipes; a stray EPIPE must not take the sidecar down

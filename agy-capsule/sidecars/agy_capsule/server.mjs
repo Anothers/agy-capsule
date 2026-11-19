@@ -9,24 +9,21 @@ import { createPresentation, getPresentationScript } from './ui.mjs';
 import { summarizeGeneration, summarizeTurnSpeed, summarizeTurnQueue } from './metrics.mjs';
 import { classifyRequestError } from './errors.mjs';
 import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
+import { startLsWatchdog } from './ls_watchdog.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
 import { summarizeTurnMetrics } from './turn_metrics.mjs';
 import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
+const PANEL_VERSION = 109;
 const presentation = createPresentation();
-const cdpNotice = createCdpNoticeManager({
-  getPrefs: () => settingsStore.read(),
-  getNotifyText: (shortcutState, prefs) => {
-    const lang = presentation.dictionaries[prefs?.settingsLanguage] ? prefs.settingsLanguage : 'zh-CN';
-    const t = presentation.dictionaries[lang] || presentation.dictionaries.en;
-    return {
-      title: t.cdpNotifyTitle,
-      body: shortcutState === 'missing' ? t.cdpNotifyBodyMissing : t.cdpNotifyBodyOk,
-    };
-  },
-});
+export function getNotifyText(shortcutState, prefs) {
+  const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
+  if (shortcutState === 'S5') return { title: t.healthSidebarTitle, body: t.healthS5 };
+  return { title: t.cdpNotifyTitle, body: shortcutState === 'missing' ? t.cdpNotifyBodyMissing : t.cdpNotifyBodyOk };
+}
+const cdpNotice = createCdpNoticeManager({ getPrefs: () => settingsStore.read(), getNotifyText });
 
 function conversationDirectories(dataDir) {
   if (dataDir) {
@@ -45,7 +42,6 @@ const conversationDirs = conversationDirectories(process.env.ANTIGRAVITY_EXECUTA
 const NO_QUOTA = { quotaGroups: [], cloudPaygo: false };
 let cachedQuota = null;
 let lastQuotaFetchMs = 0;
-let lsConnFailures = 0;
 const QUOTA_TTL_MS = 10000;
 let quotaPromise = null;
 
@@ -72,7 +68,6 @@ async function loadQuota() {
   });
   try {
     const res = await request('RetrieveUserQuotaSummary');
-    lsConnFailures = 0;
     if (!res.ok) return cachedQuota || NO_QUOTA;
     const data = await res.json();
     const groups = data?.response?.groups ?? data?.groups;
@@ -91,10 +86,6 @@ async function loadQuota() {
     lastQuotaFetchMs = Date.now();
     return cachedQuota;
   } catch {
-    lsConnFailures++;
-    if (lsConnFailures >= 2) {
-      process.exit(0);
-    }
     return cachedQuota || NO_QUOTA;
   }
 }
@@ -103,15 +94,16 @@ function readVarint(buf, offset) {
   let val = 0n;
   let shift = 0n;
   let i = offset;
-  while (i < buf.length) {
+  while (i < buf.length && i - offset < 10) {
     const b = buf[i++];
+    if (i - offset === 10 && b > 1) throw new RangeError('Invalid 64-bit protobuf varint');
     val |= BigInt(b & 0x7f) << shift;
     if ((b & 0x80) === 0) {
       return [Number(val), i];
     }
     shift += 7n;
   }
-  return [Number(val), i];
+  throw new RangeError('Truncated protobuf varint');
 }
 
 function parsePbMap(buf) {
@@ -203,10 +195,13 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
   // Missing usage/preflight rows must not become a fake zero-token result.
   const hasOutput = m1.has(4) && (usage.has(3) || (ttft !== null && streaming !== null));
   let attempts = [];
+  let missingAttempts = 0;
   let pendingAttempt = false;
   if (includeTurnMetrics) {
     const retries = m1.get(17) || [];
-    const hasAttempt = retries.length > 0 || hasOutput || ttft !== null || streaming !== null || top.has(5) || (m1.get(14)?.[0] || 0) > 0;
+    const count = m1.get(14)?.[0];
+    const retryCount = Number.isInteger(count) && count >= 0 && count <= 0x7fffffff ? count : 0;
+    const hasAttempt = retries.length > 0 || hasOutput || ttft !== null || streaming !== null || top.has(5) || retryCount > 0;
     attempts = retries.map((value, index) => {
       const info = parsePbMap(value);
       const counters = parsePbMap(info.get(2)?.[0] || Buffer.alloc(0));
@@ -215,8 +210,7 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
       return { usage: recordedTokenUsage(finalSuccess && !reported ? usage : counters, finalSuccess) };
     });
     if (hasAttempt && attempts.length === 0) attempts.push({ usage: recordedTokenUsage(usage, hasOutput) });
-    const expectedAttempts = hasAttempt ? Math.max(attempts.length, (m1.get(14)?.[0] || 0) + 1) : 0;
-    while (attempts.length < expectedAttempts) attempts.unshift({ usage: recordedTokenUsage(new Map()) });
+    if (hasAttempt) missingAttempts = Math.max(0, retryCount + 1 - attempts.length);
     pendingAttempt = !hasAttempt && stepIndices.length > 0;
   }
 
@@ -256,6 +250,7 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
     stepIndices,
     requestError,
     attempts,
+    missingAttempts,
     pendingAttempt,
     generation: {
       requestIndex: idx, ttft, streaming,
@@ -292,9 +287,10 @@ function resolveConversationDb(id, allowLatest) {
   return latest;
 }
 
-async function makeEmptyContextResult() {
+async function makeEmptyContextResult(health = null) {
   return {
-    uiVersion: 106,
+    health,
+    uiVersion: PANEL_VERSION,
     turnSpeed: null,
     turnQueue: null,
     turnMetrics: null,
@@ -316,13 +312,15 @@ async function makeEmptyContextResult() {
 async function inspectConversation(convId, exact = false) {
   if (exact) lastDeckConvId = convId || '';
   const dbPath = resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
-  if (!dbPath) return await makeEmptyContextResult();
+  if (!dbPath) return await makeEmptyContextResult(conversationDirs.some(dir => statSync(dir, { throwIfNoEntry: false })?.isDirectory()) ? null : { code: 'S3' });
 
   const prefs = settingsStore.read();
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
-  if (!snapshot) return await makeEmptyContextResult();
+  const health = conversationCache.health(dbPath);
+  if (!snapshot) return await makeEmptyContextResult(health);
   return {
-    uiVersion: 106,
+    health,
+    uiVersion: PANEL_VERSION,
     ...snapshot,
     prefs,
     ...await fetchQuota(),
@@ -571,6 +569,7 @@ const UI_HTML = `<!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
+  <meta name="referrer" content="no-referrer" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>agy-capsule</title>
   <script src="/preload.js"></script>
@@ -1103,6 +1102,8 @@ const UI_HTML = `<!DOCTYPE html>
     body[data-label-case="lowercase"] .panel .turn-bar-short,
     body[data-label-case="lowercase"] .panel .quota-label { text-transform: lowercase; }
     .cdp-notice { max-width: 1120px; margin: 0 auto 10px; padding: 8px 10px; border-radius: 7px; border: 1px solid color-mix(in srgb, #e0a030 45%, transparent); background: color-mix(in srgb, #e0a030 8%, var(--background, #141414)); font-size: 12px; color: var(--muted-foreground, #8e8e93); }
+    #health-code { text-align: end; font-size: 12px; color: var(--muted-foreground, #8e8e93); }
+    #sidebar-stats[data-stale="true"] .stats-layout { opacity: .75; }
     .cdp-notice[hidden] { display: none; }
     .cdp-notice-title { font-weight: 600; color: var(--foreground, #ebebeb); margin-bottom: 3px; }
     .cdp-notice p { margin: 0 0 4px; }
@@ -1122,6 +1123,7 @@ const UI_HTML = `<!DOCTYPE html>
   </style>
 </head>
 <body>
+  <p id="panel-auth-notice" class="cdp-notice" style="margin: 12px; padding: 10px 12px" role="alert" hidden></p>
   <main class="sidebar-content">
   <div class="sidebar-nav">
     <div class="sidebar-tabs" role="tablist" aria-label="Sidebar 页面" data-view="stats">
@@ -1130,7 +1132,7 @@ const UI_HTML = `<!DOCTYPE html>
       <button type="button" id="sidebar-tab-settings" role="tab" aria-selected="false" aria-controls="sidebar-settings" tabindex="-1">设置</button>
     </div>
   </div>
-  <aside class="cdp-notice" id="cdp-notice" role="status" hidden>
+  <aside class="cdp-notice" id="cdp-notice" role="status" aria-atomic="true" hidden>
     <div class="cdp-notice-title" id="cdp-notice-title" data-cdp-i18n="cdpTitle">底栏胶囊未启用</div>
     <p id="cdp-notice-body" data-cdp-i18n="cdpBody"></p>
     <div class="cdp-notice-actions" id="cdp-notice-actions" hidden>
@@ -1145,6 +1147,7 @@ const UI_HTML = `<!DOCTYPE html>
         <li data-cdp-i18n="cdpRestart"></li>
       </ol>
     </details>
+    <div id="health-code"></div>
   </aside>
   <div class="panel sidebar-view" id="sidebar-stats" role="tabpanel" aria-labelledby="sidebar-tab-stats" tabindex="0">
     <div class="stats-layout">
@@ -1347,7 +1350,8 @@ const UI_HTML = `<!DOCTYPE html>
     let settingsLabels = presentation.dictionaries[prefs.settingsLanguage];
     let savingSettings = false;
     let settingsEpoch = 0;
-    let lastData = null;
+    let lastData = null, refreshing = false, refreshFailures = 0;
+    let sampleCode = '', sampleCount = 0, healthCode = '';
     const sidebarTabs = document.querySelector('.sidebar-tabs');
     let sidebarView = 'stats';
     const sidebarScroll = { stats: 0, settings: 0 };
@@ -1363,7 +1367,7 @@ const UI_HTML = `<!DOCTYPE html>
           tab.tabIndex = selected ? 0 : -1;
           document.getElementById('sidebar-' + name).hidden = !selected;
         }
-        renderCdpNotice();
+        renderHealthNotice();
         window.scrollTo({ top: sidebarScroll[view], behavior: 'instant' });
       }
       if (focus) document.getElementById('sidebar-tab-' + view).focus({ preventScroll: true });
@@ -1457,12 +1461,22 @@ const UI_HTML = `<!DOCTYPE html>
       if (lastData) renderData(lastData);
     }
     applySettings(prefs);
-    function apiOptions(path) {
+    let panelLocked = false;
+    async function postApi(path, data = {}, signal) {
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token') || window.sidecar?.token || '';
-      const query = new URLSearchParams();
-      if (token) query.set('token', token);
-      return { url: path + (query.size ? '?' + query : ''), headers: token ? { 'X-Sidecar-Token': token } : {} };
+      const headers = { 'Content-Type': 'application/json' };
+      if (token) headers['X-Sidecar-Token'] = token;
+      const res = await (window.sidecar?.fetch || fetch)(path, { method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(data) });
+      if (res.status === 401 || res.status === 403) {
+        panelLocked = true;
+        document.querySelector('.sidebar-content').style.display = 'none';
+        const notice = document.getElementById('panel-auth-notice');
+        notice.textContent = (sidebarView === 'settings' ? settingsLabels : labels).panelAuthFailed;
+        notice.hidden = false;
+      }
+      if (!res.ok) throw new Error('Panel request failed: HTTP ' + res.status);
+      return res;
     }
     async function saveSettings(patch) {
         if (savingSettings) return;
@@ -1472,14 +1486,13 @@ const UI_HTML = `<!DOCTYPE html>
         applySettings(patch);
         updateControlState();
         try {
-          const api = apiOptions('/api/settings');
-          const res = await fetch(api.url, { method: 'POST', headers: { ...api.headers, 'Content-Type': 'application/json' }, body: JSON.stringify(patch) });
+          const res = await postApi('/api/settings', patch);
           const data = await res.json();
           if (!res.ok || data.error) throw new Error('Save failed');
           applySettings(data, true);
         } catch {
           applySettings(previous, true);
-          window.alert(settingsLabels.saveFailed);
+          if (!panelLocked) window.alert(settingsLabels.saveFailed);
         } finally {
           settingsEpoch++;
           savingSettings = false;
@@ -1632,29 +1645,38 @@ const UI_HTML = `<!DOCTYPE html>
     }
 
     async function refresh() {
+      if (panelLocked || refreshing) return;
+      refreshing = true;
       const requestedSettingsEpoch = settingsEpoch;
       try {
         const urlParams = new URLSearchParams(window.location.search);
-        const token = urlParams.get('token') || '';
         const convId = window.sidecar?.conversationId || urlParams.get('conversationId') || '';
-        const qs = new URLSearchParams();
-        if (convId) qs.set('conversationId', convId);
-        if (token) qs.set('token', token);
-        const qStr = qs.toString() ? '?' + qs.toString() : '';
-        const headers = token ? { 'X-Sidecar-Token': token } : {};
-        const res = await fetch('/api/context' + qStr, { method: 'GET', headers });
+        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000));
         const d = await res.json();
-        if (d.error) return;
-        if (d.uiVersion && d.uiVersion !== 106) {
+        if (!d || d.error) throw new Error('Context unavailable');
+        if (panelLocked) return;
+        if (d.uiVersion && d.uiVersion !== ${PANEL_VERSION}) {
           window.location.reload();
           return;
         }
+        refreshFailures = 0;
         lastData = d;
+        const footerCode = ['missing', 'unreachable'].includes(lastData?.deckCdp) ? 'F1'
+          : ({ unverified: 'F2', 'inject-failed': 'F4', 'no-anchor': 'F3' }[d.deckCdp] || '');
+        const code = ['S3', 'S4'].includes(d.health?.code) ? d.health.code : footerCode;
+        sampleCount = code === sampleCode ? sampleCount + 1 : 1;
+        sampleCode = code;
+        // F3/F4 and S4 already have thresholds in the backend.
+        healthCode = code === healthCode || sampleCount >= 2 || !['S3', 'F1', 'F2'].includes(code) ? code : '';
         if (!savingSettings && requestedSettingsEpoch === settingsEpoch) applySettings(d.prefs);
         else renderData(d);
-      } catch (e) {
-        console.error(e);
-      }
+      } catch {
+        if (!panelLocked) {
+          refreshFailures++;
+          sampleCount = 0;
+          renderHealthNotice();
+        }
+      } finally { refreshing = false; }
     }
 
     function renderData(d) {
@@ -1706,7 +1728,7 @@ const UI_HTML = `<!DOCTYPE html>
         document.getElementById('val-out-pct').textContent = ctx.outPct;
 
         renderQuota(d.quotaGroups);
-        renderCdpNotice();
+        renderHealthNotice();
     }
 
     // Shown on both tabs; text follows the open tab's language.
@@ -1718,10 +1740,9 @@ const UI_HTML = `<!DOCTYPE html>
         if (fixingShortcut) return;
         fixingShortcut = true;
         shortcutFixMessageKey = '';
-        renderCdpNotice();
+        renderHealthNotice();
         try {
-          const api = apiOptions('/api/fix-cdp-shortcut');
-          const res = await fetch(api.url, { method: 'POST', headers: api.headers });
+          const res = await postApi('/api/fix-cdp-shortcut');
           const result = await res.json();
           if (lastData?.deckCdpInfo && result?.shortcutState) {
             lastData.deckCdpInfo.shortcutState = result.shortcutState;
@@ -1732,16 +1753,33 @@ const UI_HTML = `<!DOCTYPE html>
           shortcutFixMessageKey = 'cdpFixShortcutAdmin';
         } finally {
           fixingShortcut = false;
-          renderCdpNotice();
+          renderHealthNotice();
         }
       });
     }
-    function renderCdpNotice() {
+    function renderHealthNotice() {
       const notice = document.getElementById('cdp-notice');
-      notice.hidden = !['missing', 'unreachable'].includes(lastData?.deckCdp);
+      const stale = refreshFailures >= 5;
+      document.getElementById('sidebar-stats').dataset.stale = String(stale);
+      const code = stale ? 'S2' : healthCode;
+      notice.hidden = !code || panelLocked;
       if (notice.hidden) return;
       const dict = sidebarView === 'settings' ? settingsLabels : labels;
       notice.lang = sidebarView === 'settings' ? prefs.settingsLanguage : document.body.dataset.language;
+      const badge = document.getElementById('health-code');
+      const badgeText = dict.healthCode + ' ' + code;
+      if (badge.textContent !== badgeText) badge.textContent = badgeText;
+      notice.querySelector('details').hidden = code !== 'F1';
+      if (code !== 'F1') {
+        document.getElementById('cdp-notice-actions').hidden = true;
+        const title = code.startsWith('S') ? dict.healthStatsTitle : dict.healthFooterTitle;
+        const body = dict['health' + code];
+        for (const [id, text] of [['cdp-notice-title', title], ['cdp-notice-body', body]]) {
+          const node = document.getElementById(id);
+          if (node.textContent !== text) node.textContent = text;
+        }
+        return;
+      }
       const info = lastData?.deckCdpInfo || {};
       const hadBefore = info.hadBefore === true || lastData?.deckCdp === 'unreachable';
       const titleEl = document.getElementById('cdp-notice-title');
@@ -1802,11 +1840,21 @@ const isMain = (() => {
 
 if (isMain) installEpipeGuard();
 let deckInjector = null;
-if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
-  const { SidecarApp } = await import('sidecar_sdk');
+export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = process.env, notices = cdpNotice) {
+  // The SDK skips authentication for GET, and for every method without a UI token.
+  // Do not start its listener (including built-in host routes) in the latter case.
+  if (!env.ANTIGRAVITY_SIDECAR_UI_TOKEN?.trim()) {
+    console.error('[agy-capsule] sidebar disabled: host did not supply a UI token');
+    await notices.notifyPanelUnavailable();
+    return;
+  }
+  const { SidecarApp } = await loadSdk();
   const app = new SidecarApp();
   app.page('/', () => UI_HTML);
   app.page('/ui.html', () => UI_HTML);
+  // A panel left open during update reads this version even on HTTP 405, then reloads.
+  app.api('/api/context', () => ({ status: 405, headers: { Allow: 'POST' }, contentType: 'application/json',
+    body: JSON.stringify({ uiVersion: PANEL_VERSION }) }), 'GET');
   app.api('/api/context', async (data) => {
     const deckCdp = deckInjector?.status?.() ?? 'unknown';
     return {
@@ -1814,26 +1862,31 @@ if (isMain && process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) {
       deckCdp,
       deckCdpInfo: cdpNotice.info(deckCdp),
     };
-  }, 'GET');
-  app.api('/api/settings', () => settingsStore.read(), 'GET');
+  }, 'POST');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
   app.api('/api/fix-cdp-shortcut', () => cdpNotice.fixShortcuts(), 'POST');
-  app.run();
+  const ready = app.run();
   installAsyncHostRoutes(app);
+  await ready;
+  return app;
 }
 if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SIDECAR_WEB_PORT)) {
   const injector = deckInjector = startDeckInjector(inspectConversation, {
+    productRoots: conversationDirs.map(dir => dirname(dir)),
     onStatus: state => cdpNotice.observe(state),
   });
   let stopping = false;
   const shutdown = async (reason) => {
     if (stopping) return;
     stopping = true;
+    stopLsWatchdog();
     stopWatching();
     console.log('[agy-capsule] restarting/stopping:', reason);
     try { await injector.stop(); }
     finally { process.exit(0); }
   };
   const stopWatching = startSelfReloadWatcher(dirname(fileURLToPath(import.meta.url)), () => void shutdown('plugin files changed'));
+  const stopLsWatchdog = startLsWatchdog(process.env.ANTIGRAVITY_LS_ADDRESS, shutdown);
   for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => void shutdown(signal));
+  if (process.env.ANTIGRAVITY_SIDECAR_WEB_PORT) await startPanel();
 }

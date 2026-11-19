@@ -1391,6 +1391,44 @@ export function buildRuntimeBundle(owner = INSTANCE_TS) {
 
 export { pageMount, toView };
 
+// The host publishes its HTTP (language server) and HTTPS (composer) ports
+// together. Match the current session, not the newest record on disk.
+export function createComposerOriginResolver(productRoots = [], env = process.env, now = Date.now) {
+  let session;
+  return async function composerOrigin() {
+    const address = env.ANTIGRAVITY_LS_ADDRESS, token = env.ANTIGRAVITY_CSRF_TOKEN;
+    const match = /^(127\.0\.0\.1|localhost):([1-9]\d{0,4})$/.exec(address || '');
+    if (!match || +match[2] > 65535 || !token) { session = null; return null; }
+    for (const root of productRoots) {
+      let hub;
+      try { hub = JSON.parse(readFileSync(join(root, 'daemon', 'hub_' + match[2] + '.json'), 'utf8')); }
+      catch { continue; }
+      if (hub?.httpPort !== +match[2] || !Number.isInteger(hub.httpsPort) || hub.httpsPort < 1 || hub.httpsPort > 65535) continue;
+      const origin = new URL('https://127.0.0.1:' + hub.httpsPort).origin;
+      if (!session || session.address !== address || session.token !== token || session.origin !== origin || session.pid !== hub.pid) {
+        session = { address, token, origin, pid: hub.pid, verified: false, retryAt: 0, delay: 4000 };
+      }
+      if (session.verified) return origin;
+      if (now() < session.retryAt) return null;
+      // The hub and the sidecar use distinct credentials. Ask the LS itself;
+      // never send the sidecar credential to a redirected or non-loopback URL.
+      try {
+        const res = await fetch('http://' + match[1] + ':' + match[2] + '/exa.language_server_pb.LanguageServerService/RetrieveUserQuotaSummary', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'x-codeium-csrf-token': token },
+          body: '{}', redirect: 'error', signal: AbortSignal.timeout(3000),
+        });
+        await res.body?.cancel();
+        if (res.ok) { session.verified = true; return origin; }
+      } catch { /* A starting or unavailable LS is not proof of identity. */ }
+      session.retryAt = now() + session.delay;
+      session.delay = Math.min(60_000, session.delay * 2);
+      return null;
+    }
+    session = null;
+    return null;
+  };
+}
+
 export function startDeckInjector(inspect, options = {}) {
   const owner = options.instanceTs ?? INSTANCE_TS;
   const bundle = buildRuntimeBundle(owner);
@@ -1402,6 +1440,9 @@ export function startDeckInjector(inspect, options = {}) {
   let busy = false;
   // 'unknown' until the first lookup; the sidebar explains 'missing' / 'unreachable'.
   let cdpState = 'unknown';
+  let discovery = 'unknown', noAnchorSince = null, failedRounds = 0;
+  const now = options.now || Date.now;
+  const composerOrigin = createComposerOriginResolver(options.productRoots, options.env, now);
   const logOnce = message => {
     if (lastErr !== message) { lastErr = message; console.error('[deck]', message); }
   };
@@ -1415,7 +1456,7 @@ export function startDeckInjector(inspect, options = {}) {
   };
   const connect = async target => {
     const ws = new WebSocket(target.webSocketDebuggerUrl);
-    const entry = { ws, pending: new Map(), nextId: 1, lastPayload: '', lastPath: '' };
+    const entry = { ws, pending: new Map(), nextId: 1, lastPayload: '', lastPath: '', origin: new URL(target.url).origin };
     await new Promise((resolve, reject) => {
       const fail = message => { clearTimeout(timer); retire(entry, target.id); reject(new Error(message)); };
       const timer = setTimeout(() => fail('ws timeout'), 3000);
@@ -1426,45 +1467,74 @@ export function startDeckInjector(inspect, options = {}) {
     ws.onmessage = event => {
       try {
         const message = JSON.parse(event.data);
+        // Browser-issued, document-specific IDs cannot be reused across navigation.
+        if (message.method === 'Runtime.executionContextCreated') {
+          const ctx = message.params.context;
+          if (ctx.auxData?.isDefault && ctx.auxData.frameId === entry.frameId) {
+            entry.context = ctx.origin === entry.origin ? ctx.uniqueId : null;
+            entry.lastPayload = '';
+          }
+        } else if (message.method === 'Runtime.executionContextsCleared' ||
+                   (message.method === 'Runtime.executionContextDestroyed' && message.params.executionContextUniqueId === entry.context)) {
+          entry.context = null;
+        }
         const callback = entry.pending.get(message.id);
         if (callback) { entry.pending.delete(message.id); callback(message); }
       } catch {}
     };
-    ws.onclose = () => retire(entry, target.id);
+    ws.onerror = ws.onclose = () => retire(entry, target.id);
     sockets.set(target.id, entry);
+    const tree = await command(entry, 'Page.getFrameTree', {});
+    entry.frameId = tree?.frameTree?.frame?.id;
+    if (!entry.frameId || !await command(entry, 'Runtime.enable', {})) {
+      retire(entry, target.id);
+      throw new Error('could not identify composer document');
+    }
     return entry;
   };
-  const evaluate = (entry, expression) => new Promise(resolve => {
+  const command = (entry, method, params) => new Promise(resolve => {
     if (entry.ws.readyState !== 1) return resolve(undefined);
     const id = entry.nextId++;
     const timer = setTimeout(() => { entry.pending.delete(id); resolve(undefined); }, 3000);
-    entry.pending.set(id, message => { clearTimeout(timer); resolve(message?.result?.result?.value); });
-    try { entry.ws.send(JSON.stringify({ id, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); }
+    entry.pending.set(id, message => { clearTimeout(timer); resolve(message?.result); });
+    try { entry.ws.send(JSON.stringify({ id, method, params })); }
     catch { clearTimeout(timer); entry.pending.delete(id); resolve(undefined); }
   });
+  const evaluate = async (entry, context, expression) => {
+    if (!context || context !== entry.context) return;
+    return (await command(entry, 'Runtime.evaluate', { uniqueContextId: context, expression, returnByValue: true }))?.result?.value;
+  };
   const pages = async () => {
-    if (cachedPages.length && Date.now() - lastListAt < 4000) return cachedPages;
+    if (lastListAt && now() - lastListAt < 4000) return cachedPages;
     let port;
     try { port = readFileSync(options.portFile || PORT_FILE, 'utf8').split(/\r?\n/)[0].trim(); }
-    catch { cdpState = 'missing'; logOnce('DevToolsActivePort not found'); return []; }
+    catch { discovery = 'missing'; logOnce('DevToolsActivePort not found'); return []; }
     try {
-      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000) });
+      if (!/^\d{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535) throw new Error('invalid CDP port');
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(3000), redirect: 'error' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
       const targets = await response.json();
-      cachedPages = targets.filter(t => t.type === 'page' && /^https?:\/\/127\.0\.0\.1:\d+\//.test(t.url || '') && t.webSocketDebuggerUrl);
-      lastListAt = Date.now();
-      cdpState = 'ok';
+      const origin = await composerOrigin();
+      const wsOrigin = new URL('ws://127.0.0.1:' + Number(port)).origin;
+      cachedPages = targets.filter(t => {
+        if (!origin || t?.type !== 'page' || typeof t.id !== 'string' || !t.id || !URL.canParse(t.url) || new URL(t.url).origin !== origin || !URL.canParse(t.webSocketDebuggerUrl)) return false;
+        const ws = new URL(t.webSocketDebuggerUrl);
+        return ws.origin === wsOrigin && ws.pathname === '/devtools/page/' + t.id && !ws.username && !ws.password && !ws.search && !ws.hash;
+      });
+      lastListAt = now();
+      discovery = origin ? 'ok' : 'unverified';
+      if (!origin) logOnce('composer origin not verified for this host session; footer paused');
       const ids = new Set(cachedPages.map(t => t.id));
-      for (const [id, entry] of sockets) if (!ids.has(id)) retire(entry, id);
+      for (const [id, entry] of sockets) if (!ids.has(id) || entry.origin !== origin) retire(entry, id);
       return cachedPages;
-    } catch (error) { cdpState = 'unreachable'; logOnce('CDP list failed: ' + error.message); return []; }
+    } catch (error) { discovery = 'unreachable'; logOnce('CDP list failed: ' + error.message); return []; }
   };
   const stop = async () => {
     if (stopped) return;
     stopped = true;
     clearInterval(timer);
     await Promise.all([...sockets].map(async ([id, entry]) => {
-      try { await evaluate(entry, `globalThis.__agyCapsuleDeck?.owner===${owner}&&globalThis.__agyCapsuleDeck.dispose()`); }
+      try { await evaluate(entry, entry.context, `globalThis.__agyCapsuleDeck?.owner===${owner}&&globalThis.__agyCapsuleDeck.dispose()`); }
       finally { retire(entry, id); }
     }));
   };
@@ -1477,40 +1547,52 @@ export function startDeckInjector(inspect, options = {}) {
     busy = true;
     try {
       const list = await pages();
-      options.onStatus?.(cdpState);
+      let noAnchor = 0, failed = 0;
       for (const target of list) {
         if (stopped) break;
         try {
           const entry = sockets.get(target.id) || await connect(target);
-          let state = await evaluate(entry, `globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
-          if (state === undefined || stopped) continue;
+          const context = entry.context;
+          const run = expression => evaluate(entry, context, expression);
+          let state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
+          if (state === undefined || stopped) { failed++; continue; }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || state.hash !== bundle.hash) {
-            const installed = await evaluate(entry, bundle.code);
+            const installed = await run(bundle.code);
             if (installed === 'superseded') return await supersede();
-            if (!installed || stopped) continue;
+            if (!installed || stopped) { failed++; continue; }
             entry.lastPayload = '';
-            state = await evaluate(entry, `globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
+            state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
           }
           if (state === 'superseded') return await supersede();
-          if (state?.owner !== owner || !state.path || state.hasFooter === false) continue;
+          if (state?.owner !== owner || !state.path) { failed++; continue; }
+          if (state.hasFooter !== true) { noAnchor++; continue; }
           const match = state.path.match(/\/c\/([0-9a-f-]{36})/);
-          const data = await inspect(match ? match[1] : '', true);
+          // Data-source failures belong to the sidebar health path, not to CDP.
+          const data = await Promise.resolve().then(() => inspect(match ? match[1] : '', true)).catch(() => null);
           if (!data || data.error || stopped) continue;
           const payload = JSON.stringify(data);
           if (entry.lastPayload !== payload || entry.lastPath !== state.path) {
-            const applied = await evaluate(entry, `globalThis.__agyCapsuleDeck?.apply(${payload},${JSON.stringify(state.path)},${owner})??false`);
+            const applied = await run(`globalThis.__agyCapsuleDeck?.apply(${payload},${JSON.stringify(state.path)},${owner})??false`);
             if (applied === 'superseded') return await supersede();
             if (applied) { entry.lastPayload = payload; entry.lastPath = state.path; }
-            else entry.lastPayload = '';
+            else { entry.lastPayload = ''; failed++; }
           }
           lastErr = '';
         } catch (error) {
+          if (stopped) return;
+          failed++;
           const entry = sockets.get(target.id);
           if (entry) retire(entry, target.id);
           logOnce('page ' + target.id + ': ' + error.message);
         }
       }
+      if (stopped) return;
+      noAnchorSince = list.length && noAnchor === list.length ? (noAnchorSince ?? now()) : null;
+      failedRounds = list.length && failed === list.length ? failedRounds + 1 : 0;
+      cdpState = discovery !== 'ok' ? discovery : failedRounds >= 3 ? 'inject-failed'
+        : noAnchorSince !== null && now() - noAnchorSince >= 60_000 ? 'no-anchor' : 'ok';
+      options.onStatus?.(cdpState);
     } finally { busy = false; }
   };
   const timer = setInterval(tick, INTERVAL_MS);

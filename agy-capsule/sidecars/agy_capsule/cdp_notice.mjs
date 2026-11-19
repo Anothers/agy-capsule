@@ -109,10 +109,11 @@ export function createCdpNoticeManager(options = {}) {
         everOk: raw?.everOk === true,
         lastOkAt: Number(raw?.lastOkAt) || 0,
         lastNotifiedSession: String(raw?.lastNotifiedSession || ''),
+        lastPanelNoticeSession: String(raw?.lastPanelNoticeSession || ''),
         lastNotifiedAt: Number(raw?.lastNotifiedAt) || 0,
       };
     } catch {
-      return { everOk: false, lastOkAt: 0, lastNotifiedSession: '', lastNotifiedAt: 0 };
+      return { everOk: false, lastOkAt: 0, lastNotifiedSession: '', lastPanelNoticeSession: '', lastNotifiedAt: 0 };
     }
   }
 
@@ -170,7 +171,7 @@ export function createCdpNoticeManager(options = {}) {
       return false;
     }
     if (platform === 'win32' && !shortcutChecked) await checkShortcuts();
-    if (lastStatus === 'ok') return false;
+    if (notified || !['missing', 'unreachable'].includes(lastStatus)) return false;
     notified = true;
     persisted.lastNotifiedSession = sessionId;
     persisted.lastNotifiedAt = Date.now();
@@ -191,7 +192,7 @@ export function createCdpNoticeManager(options = {}) {
       }
       return;
     }
-    if (cdpState !== 'missing' && cdpState !== 'unreachable') return;
+    if (cdpState !== 'missing' && cdpState !== 'unreachable') { consecutiveFails = 0; return; }
     consecutiveFails++;
     if (platform === 'win32' && !shortcutChecked) {
       void checkShortcuts();
@@ -226,5 +227,12 @@ export function createCdpNoticeManager(options = {}) {
     };
   }
 
-  return { observe, info, checkShortcuts, fixShortcuts, maybeNotify };
+  async function notifyPanelUnavailable() {
+    if (persisted.lastPanelNoticeSession === sessionId || loadState().lastPanelNoticeSession === sessionId) return false;
+    persisted.lastPanelNoticeSession = sessionId;
+    saveState();
+    const { title, body } = getNotifyText('S5', getPrefs());
+    return sendOsNotification(title, body);
+  }
+  return { observe, info, checkShortcuts, fixShortcuts, maybeNotify, notifyPanelUnavailable };
 }

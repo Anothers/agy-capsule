@@ -10,10 +10,11 @@ export function summarizeTurnMetrics(requests, steps, userStepIndex, executors =
   const attributable = requests.filter(request => request.lastStepIndex >= userStepIndex);
   const ambiguous = requests.some(request => request.lastStepIndex < 0 && request.stepIndices?.some(idx => idx > userStepIndex));
   const attempts = attributable.flatMap(request => request.attempts || []);
+  const missing = attributable.reduce((sum, request) => sum + (request.missingAttempts || 0), 0);
   const pending = attributable.some(request => request.pendingAttempt);
   const knownTotals = Object.fromEntries(TOKEN_KEYS.map(key => [key, attempts.reduce((sum, attempt) => sum + (attempt.usage[key] ?? 0), 0)]));
   const totals = Object.fromEntries(TOKEN_KEYS.map(key => [key,
-    ambiguous || pending || attempts.some(attempt => attempt.usage[key] === null) ? null : knownTotals[key],
+    ambiguous || pending || missing || attempts.some(attempt => attempt.usage[key] === null) ? null : knownTotals[key],
   ]));
 
   let state = 'unknown';
@@ -47,9 +48,9 @@ export function summarizeTurnMetrics(requests, steps, userStepIndex, executors =
   return {
     userStepIndex, state, startedAtMs, endedAtMs,
     duration: startedAtMs && endedAtMs ? (endedAtMs - startedAtMs) / 1000 : null,
-    requestCount: ambiguous || pending ? null : attempts.length,
-    knownRequestCount: attempts.length,
-    missingUsageRequests: attempts.filter(attempt => TOKEN_KEYS.some(key => attempt.usage[key] === null)).length,
+    requestCount: ambiguous || pending ? null : attempts.length + missing,
+    knownRequestCount: attempts.length + missing,
+    missingUsageRequests: missing + attempts.filter(attempt => TOKEN_KEYS.some(key => attempt.usage[key] === null)).length,
     pending, associationIncomplete: ambiguous, knownTotals, ...totals,
   };
 }

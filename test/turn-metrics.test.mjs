@@ -83,6 +83,17 @@ test('protobuf distinguishes preflight, failed retries and reported usage withou
   assert.equal(parseGenRow(2, message(1, message(4, integer(2, 100)))).attempts.length, 0);
 });
 
+test('retry counts preserve missing usage without allocating placeholder attempts', () => {
+  const row = parseGenRow(1, message(1, Buffer.concat([message(4, counters), integer(14, 1000)])));
+  assert.equal(row.attempts.length, 1);
+  const summary = summarizeTurnMetrics([{ ...row, lastStepIndex: 10 }], [user], 10);
+  assert.equal(summary.requestCount, 1001);
+  assert.equal(summary.missingUsageRequests, 1000);
+  assert.equal(summary.read, null);
+  assert.equal(summary.knownTotals.read, 100);
+  assert.equal(parseGenRow(1, message(1, integer(14, 2n ** 63n))).missingAttempts, 0);
+});
+
 test('SQLite snapshot integrates latest user timestamps, request attempts and executor termination', t => {
   const directory = mkdtempSync(join(tmpdir(), 'agy-turn-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));

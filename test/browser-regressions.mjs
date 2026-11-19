@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { UI_HTML } from '../agy-capsule/sidecars/agy_capsule/server.mjs';
 import { DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
 import { buildRuntimeBundle, startDeckInjector } from '../agy-capsule/sidecars/agy_capsule/deck_injector.mjs';
+import { hostFixture } from './cdp-host-fixture.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.argv[2] || 'playwright');
 const launch = { headless: true, ...(process.argv[3] ? { channel: process.argv[3] } : {}) };
@@ -68,13 +69,20 @@ await test('Sidebar clears empty or missing quotas and renders a later fresh sna
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   const data = snapshot();
+  let authorized = true;
   await page.route('http://agy.test/**', route => {
     const path = new URL(route.request().url()).pathname;
-    if (path === '/api/context') return route.fulfill({ json: data });
+    if (path === '/api/context') {
+      assert.equal(route.request().method(), 'POST');
+      assert.equal(route.request().headers()['x-sidecar-token'], 'panel-fixture');
+      assert.equal(new URL(route.request().url()).search, '');
+      if (!authorized) return route.fulfill({ status: 401, contentType: 'text/plain', body: 'Unauthorized' });
+      return route.fulfill({ json: data });
+    }
     if (path === '/preload.js') return route.fulfill({ body: '' });
     return route.fulfill({ contentType: 'text/html', body: UI_HTML });
   });
-  await page.goto('http://agy.test/');
+  await page.goto('http://agy.test/?token=panel-fixture');
   await page.waitForFunction(() => document.querySelectorAll('#quota-root .quota-group').length === 1);
   const quotas = data.quotaGroups;
   for (const empty of [[], null]) {
@@ -85,6 +93,83 @@ await test('Sidebar clears empty or missing quotas and renders a later fresh sna
     await page.waitForFunction(() => document.querySelectorAll('#quota-root .quota-group').length === 1);
   }
   assert.deepEqual(errors, []);
+  authorized = false;
+  await page.locator('#panel-auth-notice').waitFor({ state: 'visible' });
+  assert.equal(await page.locator('.sidebar-content').isVisible(), false);
+  assert.match(await page.locator('#panel-auth-notice').textContent(), /Antigravity/);
+  assert.match(await page.locator('#panel-auth-notice').textContent(), /S1/);
+});
+
+await test('Chinese health notice debounces failures, prioritizes sidebar data and recovers without losing statistics', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 700 } });
+  const data = snapshot(); data.prefs.language = 'zh-CN';
+  let failure = 0;
+  await page.addInitScript(() => {
+    const interval = window.setInterval;
+    window.setInterval = (fn, ms, ...args) => {
+      if (fn.name !== 'refresh') return interval(fn, ms, ...args);
+      window.testRefresh = fn;
+    };
+  });
+  await page.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') {
+      if (failure === 1) return route.abort();
+      if (failure === 2) return route.fulfill({ status: 503, body: 'busy' });
+      if (failure === 3) return route.fulfill({ body: '{' });
+      if (failure === 4) return route.fulfill({ status: 403, body: '' });
+      return route.fulfill({ json: data });
+    }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  await page.waitForFunction(() => document.querySelector('#used-pct').textContent === '50%');
+  const tick = () => page.evaluate(() => window.testRefresh());
+  const box = page.locator('#cdp-notice'), badge = box.locator('#health-code');
+  data.deckCdp = 'unverified'; await tick(); assert.equal(await box.isVisible(), false);
+  await tick(); assert.equal(await badge.textContent(), '代码 F2');
+  assert.match(await box.textContent(), /侧栏统计不受影响/);
+  assert.equal(await box.locator('details').isVisible(), false);
+  assert.equal(await box.locator('#cdp-fix-btn').isVisible(), false);
+  failure = 1; await tick(); failure = 0; await tick();
+  assert.ok(await box.isVisible(), 'an already-confirmed F2 must not flicker after a failed poll');
+  assert.equal(await badge.textContent(), '代码 F2');
+  data.deckCdp = 'ok'; await tick(); assert.equal(await box.isVisible(), false);
+  data.health = { code: 'S3' }; await tick(); assert.equal(await box.isVisible(), false);
+  await tick(); assert.equal(await badge.textContent(), '代码 S3');
+  data.health = null; await tick(); assert.equal(await box.isVisible(), false);
+  data.health = { code: 'S4' }; await tick(); assert.equal(await badge.textContent(), '代码 S4');
+  for (const f of [1, 2, 3, 1]) { failure = f; await tick(); assert.equal(await badge.textContent(), '代码 S4'); }
+  failure = 2; await tick(); assert.equal(await badge.textContent(), '代码 S2');
+  assert.match(await box.textContent(), /数据可能已过时/);
+  assert.equal(await page.locator('#sidebar-stats').getAttribute('data-stale'), 'true');
+  assert.equal(await page.locator('#used-pct').textContent(), '50%');
+  data.health = null; data.deckCdp = 'ok'; failure = 0; await tick();
+  assert.equal(await box.isVisible(), false);
+  assert.equal(await page.locator('#sidebar-stats').getAttribute('data-stale'), 'false');
+  data.deckCdp = 'missing'; await tick(); assert.equal(await box.isVisible(), false);
+  await tick(); assert.equal(await badge.textContent(), '代码 F1'); assert.equal(await box.locator('details').isVisible(), true);
+  data.deckCdp = 'ok'; await tick(); assert.equal(await box.isVisible(), false);
+  data.deckCdp = 'unreachable'; await tick(); assert.equal(await box.isVisible(), false);
+  await tick(); assert.equal(await badge.textContent(), '代码 F1');
+  for (const [state, code] of [['inject-failed', 'F4'], ['no-anchor', 'F3']]) {
+    data.deckCdp = state; await tick(); assert.equal(await badge.textContent(), '代码 ' + code);
+    assert.equal(await box.locator('details').isVisible(), false);
+  }
+  data.deckCdp = 'ok'; await tick(); assert.equal(await box.isVisible(), false);
+  data.deckCdp = 'unverified'; await tick(); await tick();
+  assert.ok(await box.isVisible());
+  failure = 4; await tick();
+  const auth = page.locator('#panel-auth-notice');
+  assert.ok(await auth.isVisible()); assert.match(await auth.innerText(), /S1/);
+  assert.equal(await box.isVisible(), false);
+  const bounds = await auth.boundingBox();
+  assert.ok(bounds.x >= 10 && bounds.x + bounds.width <= 350, 'S1 has margins at 360px');
+  failure = 0; data.deckCdp = 'ok'; await page.reload();
+  await page.waitForFunction(() => document.querySelector('#used-pct').textContent === '50%');
+  assert.equal(await auth.isVisible(), false); assert.equal(await box.isVisible(), false);
 });
 
 await test('Footer reveals and wider speed values never overlap the native controls', async t => {
@@ -171,22 +256,33 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage();
+  await page.route('https://127.0.0.1:5351/', route => route.fulfill({ body: '<!doctype html>', contentType: 'text/html' }));
+  await page.goto('https://127.0.0.1:5351/');
   await page.setContent('<div class="agy-composer-footer" style="display:flex;width:600px"><div style="display:flex;flex:1"><button>Gemini</button></div><button>Send</button></div>');
 
   const directory = mkdtempSync(join(tmpdir(), 'agy-cdp-takeover-'));
   const portFile = join(directory, 'port');
   writeFileSync(portFile, '12345\n');
   const originals = { fetch: globalThis.fetch, WebSocket: globalThis.WebSocket };
-  globalThis.fetch = async () => ({ ok: true, json: async () => [{ id: 'page', type: 'page', url: 'http://127.0.0.1:12345/', webSocketDebuggerUrl: 'ws://mock' }] });
+  const fixture = hostFixture(directory);
+  globalThis.fetch = async () => ({ ok: true, json: async () => [{ id: 'page', type: 'page', url: page.url(), webSocketDebuggerUrl: 'ws://127.0.0.1:12345/devtools/page/page' }] });
   globalThis.WebSocket = class {
-    constructor() { queueMicrotask(() => { this.readyState = 1; this.onopen?.(); }); }
-    async send(raw) {
-      const { id, params: { expression } } = JSON.parse(raw);
-      let value;
-      try { value = await page.evaluate(expression); } catch {}
-      this.onmessage?.({ data: JSON.stringify({ id, result: { result: { value } } }) });
+    constructor() {
+      page.context().newCDPSession(page).then(session => {
+        this.session = session;
+        for (const method of ['Runtime.executionContextCreated', 'Runtime.executionContextDestroyed', 'Runtime.executionContextsCleared']) {
+          session.on(method, params => this.onmessage?.({ data: JSON.stringify({ method, params }) }));
+        }
+        this.readyState = 1; this.onopen?.();
+      });
     }
-    close() { this.readyState = 3; this.onclose?.(); }
+    async send(raw) {
+      const { id, method, params } = JSON.parse(raw);
+      let result;
+      try { result = await this.session.send(method, params); } catch {}
+      this.onmessage?.({ data: JSON.stringify({ id, result }) });
+    }
+    close() { this.readyState = 3; void this.session.detach().catch(() => {}); this.onclose?.(); }
   };
   const data = contextTokens => ({ ...snapshot(), contextTokens, maxContextTokens: 1000 });
   const waiting = Promise.withResolvers();
@@ -197,8 +293,8 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
     waiting.resolve();
     await release.promise;
     return data(200);
-  }, { portFile, instanceTs: owner, onSuperseded: () => { superseded = true; } });
-  const newer = startDeckInjector(async () => data(800), { portFile, instanceTs: owner + 1 });
+  }, { ...fixture, portFile, instanceTs: owner, onSuperseded: () => { superseded = true; } });
+  const newer = startDeckInjector(async () => data(800), { ...fixture, portFile, instanceTs: owner + 1 });
   try {
     await old.tick();
     const pill = page.locator('#agy-capsule-host [data-k="pillCtx"]');

@@ -8,6 +8,7 @@ import { spawnSync } from 'node:child_process';
 import { startDeckInjector } from '../agy-capsule/sidecars/agy_capsule/deck_injector.mjs';
 import { createCdpNoticeManager } from '../agy-capsule/sidecars/agy_capsule/cdp_notice.mjs';
 import { UI_HTML } from '../agy-capsule/sidecars/agy_capsule/server.mjs';
+import { hostFixture } from './cdp-host-fixture.mjs';
 import { createPresentation } from '../agy-capsule/sidecars/agy_capsule/ui.mjs';
 
 test('injector reports whether the debugging port is missing, unreachable or ok', async t => {
@@ -20,7 +21,8 @@ test('injector reports whether the debugging port is missing, unreachable or ok'
   console.error = console.log = () => {};
   t.after(() => { globalThis.fetch = originalFetch; console.error = originalError; console.log = originalLog; });
 
-  const injector = startDeckInjector(async () => ({}), { portFile });
+  const fixture = hostFixture(dir);
+  const injector = startDeckInjector(async () => ({}), { portFile, ...fixture });
   t.after(() => injector.stop());
   assert.equal(injector.status(), 'unknown');
   await injector.tick();
@@ -34,6 +36,10 @@ test('injector reports whether the debugging port is missing, unreachable or ok'
   globalThis.fetch = async () => ({ ok: true, json: async () => [] });
   await injector.tick();
   assert.equal(injector.status(), 'ok');
+  const unverified = startDeckInjector(async () => assert.fail('unverified origin'), { portFile, productRoots: [], env: fixture.env });
+  t.after(() => unverified.stop());
+  await unverified.tick();
+  assert.equal(unverified.status(), 'unverified', 'a completed, unverified lookup is distinct from startup');
 });
 
 test('sidebar ships the CDP notice on both tabs with the script command and translated strings', () => {
@@ -48,6 +54,7 @@ test('sidebar ships the CDP notice on both tabs with the script command and tran
     for (const key of ['cdpTitle', 'cdpBody', 'cdpHow', 'cdpScript', 'cdpManual', 'cdpRestart', 'cdpRestartTitle', 'cdpRestartBodyShortcutOk', 'cdpRestartBodyShortcutMissing', 'cdpRestartBodyGeneric', 'cdpRestartHow', 'cdpFixShortcutBtn', 'cdpNotifyTitle', 'cdpNotifyBodyOk', 'cdpNotifyBodyMissing', 'notifyCdpRestart']) {
       assert.ok(dictionaries[language][key], `${language}.${key}`);
     }
+    for (const key of ['healthCode', 'healthS2', 'healthS3', 'healthS4', 'healthS5', 'healthF2', 'healthF3', 'healthF4']) assert.ok(dictionaries[language][key], key);
   }
   assert.ok(UI_HTML.includes('id="cdp-fix-btn"'));
   assert.ok(UI_HTML.includes('/api/fix-cdp-shortcut'));

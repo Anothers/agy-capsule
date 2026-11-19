@@ -44,7 +44,12 @@ test('unready files do not read; failed refresh retries its own snapshot without
     writeFileSync(a, 'a'); assert.equal(cache.read(a), 1);
     fail = true; writeFileSync(a, 'changed'); assert.equal(cache.read(a), 1);
     writeFileSync(b, 'b'); assert.equal(cache.read(b), null);
+    for (let count = 2; count <= 10; count++) {
+      assert.equal(cache.read(a), 1, 'busy DB returns its last good snapshot');
+      assert.deepEqual(cache.health(a), count < 10 ? null : { code: 'S4' });
+    }
     fail = false; assert.equal(cache.read(a), 7);
+    assert.equal(cache.health(a), null, 'successful fresh read clears S4');
     rmSync(a); assert.equal(cache.read(a), null);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
