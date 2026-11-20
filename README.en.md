@@ -156,7 +156,7 @@ Directions we may explore later, with no committed timeline:
 
 - **Sub-agent turn metrics**: Count each sub-agent execution as a turn to show turn duration, request count, and token totals.
 - **More effort bar styles**: Offer more optional effort bar looks for the model capsule, keeping the current style as the default.
-- **WSL, SSH, and cloud projects**: Show capsules in WSL and SSH remote windows and in cloud project conversations. Their data is not stored on this computer yet, so the capsules cannot appear there for now.
+- **WSL, SSH, and cloud projects**: Show capsules in WSL and SSH remote windows. Cloud project conversations already show the footer capsules, but the host does not offer the plugin sidebar there yet.
 
 ## Contributing
 
