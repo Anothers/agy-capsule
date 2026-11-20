@@ -1009,7 +1009,7 @@ function pageMount(d, childAnchor = null) {
   const running = !!d.turnSpeed?.hasActiveStep || cancelBtnVisible;
   const hasSpeed = Number.isFinite(tps) && tps >= 0;
   const motionEnabled = d.prefs?.speedAnimation === true;
-  pillSpeed.hidden = d.prefs?.showSpeed === false || (!d.turnSpeed && !running);
+  pillSpeed.hidden = d.requestTimingAvailable === false || d.prefs?.showSpeed === false || (!d.turnSpeed && !running);
   const speedValue = pillSpeed.querySelector('[data-generation="speed"]');
   const speedText = hasSpeed ? tps.toFixed(1) + ' tok/s' : '—';
   if (speedValue.textContent !== speedText) speedValue.textContent = speedText;
@@ -1513,7 +1513,8 @@ function toView(d) {
     subagent: d.subagent,
     hasContext: Number.isFinite(d.contextTokens) && d.contextTokens > 0 && Number.isFinite(d.maxContextTokens) && d.maxContextTokens > 0,
     prefs: d.prefs || { language: 'en' },
-    generation: d.generation || null,
+    requestTimingAvailable: d.requestTimingAvailable !== false,
+    generation: d.requestTimingAvailable === false ? null : (d.generation || null),
     turnSpeed: d.turnSpeed || null,
     turnQueue: d.turnQueue || null,
     turnMetrics: d.turnMetrics || null,

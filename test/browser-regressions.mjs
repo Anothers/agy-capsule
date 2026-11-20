@@ -87,6 +87,54 @@ await test('Injected cloud reader runs without imports and rejects stale compose
   assert.equal(await read(owner), false, 'a main view swap invalidates the pending read even without a route change');
 });
 
+await test('Cloud-only timing suppression leaves no space and clears when local data returns', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const deck = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+  const panel = await browser.newPage({ viewport: { width: 360, height: 900 } });
+  const fixture = snapshot();
+  const local = { ...fixture, prefs: { ...fixture.prefs, showSpeed: true, showRequestMetrics: true } };
+  // Keep generation data identical to exercise visibility and sidebar render invalidation independently of values.
+  const cloud = { ...local, requestTimingAvailable: false, turnSpeed: { ...local.turnSpeed, hasActiveStep: true } };
+  let panelData = local;
+  await panel.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') return route.fulfill({ json: panelData });
+    if (path === '/preload.js') return route.fulfill({ body: '' });
+    return route.fulfill({ body: UI_HTML, contentType: 'text/html' });
+  });
+  await panel.goto('http://agy.test/?token=panel-fixture');
+  await deck.setContent('<main data-testid="conversation-view"><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button>Model</button></div><button data-testid="input-cancel-button">Cancel</button></div></main>');
+  await deck.evaluate(buildRuntimeBundle(owner).code);
+  const speed = deck.locator('#agy-capsule-host [data-el="pillSpeed"]');
+  const ctx = deck.locator('#agy-capsule-host [data-el="grpCtx"] .dk-pill');
+  const pop = deck.locator('#agy-capsule-host .dk-ctx-pop');
+  const rows = page => ['timing', 'speed'].map(key => page.locator(`[data-generation-row="${key}"]`));
+  const waitForRows = (page, state) => Promise.all(rows(page).map(row => row.waitFor({ state, timeout: 4000 })));
+
+  assert.equal(await apply(deck, local), true);
+  assert.equal(await speed.isVisible(), true);
+  await ctx.click();
+  await waitForRows(pop, 'visible');
+  await waitForRows(panel, 'visible');
+
+  panelData = cloud;
+  assert.equal(await apply(deck, cloud), true);
+  await waitForRows(pop, 'hidden');
+  await waitForRows(panel, 'hidden');
+  assert.equal(await speed.boundingBox(), null, 'an active cloud turn still takes no footer space');
+  assert.equal(await pop.locator('[data-generation-block]').boundingBox(), null);
+  assert.equal(await panel.locator('[data-generation-block]').boundingBox(), null);
+  assert.equal(await pop.isVisible(), true);
+  assert.equal(await panel.locator('#used-fraction').textContent(), '128K / 256K');
+
+  panelData = local;
+  assert.equal(await apply(deck, local), true);
+  await waitForRows(pop, 'visible');
+  await waitForRows(panel, 'visible');
+  assert.equal(await speed.textContent(), '100.0 tok/s');
+});
+
 await test('A wider side-question composer never takes the main footer capsule', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());

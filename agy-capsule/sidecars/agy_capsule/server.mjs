@@ -18,7 +18,7 @@ import { createCloudTelemetryStore } from './cloud_telemetry.mjs';
 
 const settingsStore = createSettingsStore();
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 127;
+const PANEL_VERSION = 128;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -330,6 +330,7 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
         health: null,
         uiVersion: PANEL_VERSION,
         ...cloudSnapshot,
+        requestTimingAvailable: false,
         prefs,
         ...await fetchQuota(),
       };
@@ -1978,17 +1979,18 @@ const UI_HTML = `<!DOCTYPE html>
 
     function renderData(d) {
       const now = Date.now();
+      const generation = d.requestTimingAvailable === false ? null : d.generation;
       // Time can change what is shown even when the response is identical.
       const alert = presentation.alertView(d, prefs, labels, now);
       const elapsed = prefs.showTurnMetrics && d.turnMetrics
         ? presentation.turnMetricsText(d.turnMetrics, labels, now).elapsed : '';
       const sig = JSON.stringify([prefsSig, d.contextTokens, d.maxContextTokens, d.cachedIn, d.uncachedIn,
-        d.turn0Tokens, d.totalOutputTokens, d.totalThinkingTokens, d.generation, d.turnMetrics,
+        d.turn0Tokens, d.totalOutputTokens, d.totalThinkingTokens, generation, d.turnMetrics,
         alert.contextTone, alert.contextTip, elapsed]);
       if (sig !== statsSig) {
         presentation.renderContextTooltips(panel, d, labels);
         presentation.renderAlerts(document.body, d, prefs, labels, now);
-        presentation.renderGeneration(panel, d.generation, labels, prefs);
+        presentation.renderGeneration(panel, generation, labels, prefs);
         presentation.renderTurnMetrics(panel, d.turnMetrics, labels, prefs, now);
         const ctx = presentation.contextBreakdown(d);
 
