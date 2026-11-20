@@ -115,7 +115,7 @@ test('child reads never move the main sidebar and alerts stay in the child execu
   assert.equal(full.contextTokens, 150, 'Full View supplies the child ID even without a composer');
   assert.deepEqual(full.turnMetrics, data.turnMetrics, 'the sidebar and the child capsule share the same turn');
   assert.deepEqual(full.turnSpeed, data.turnSpeed);
-  assert.equal(full.uiVersion, 140);
+  assert.equal(full.uiVersion, 141);
   assert.equal((await postContext({ conversationId: 'empty-child' })).turnMetrics, null);
   assert.equal((await postContext({ conversationId: 'missing' })).contextTokens, 0, 'no parent fallback for a missing child DB');
   assert.equal((await postContext({ conversationId: '' })).contextTokens, 0, 'an explicitly empty view must not display an old chat');

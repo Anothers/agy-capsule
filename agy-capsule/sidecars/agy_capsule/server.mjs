@@ -26,7 +26,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 140;
+const PANEL_VERSION = 141;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
