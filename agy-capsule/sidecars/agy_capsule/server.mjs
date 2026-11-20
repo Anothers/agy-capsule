@@ -14,8 +14,10 @@ import { startSelfReloadWatcher } from './reload.mjs';
 import { summarizeTurnMetrics } from './turn_metrics.mjs';
 import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
+import { createCloudTelemetryStore } from './cloud_telemetry.mjs';
 
 const settingsStore = createSettingsStore();
+const cloudTelemetryStore = createCloudTelemetryStore();
 const PANEL_VERSION = 125;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
@@ -311,10 +313,23 @@ async function makeEmptyContextResult(health = null) {
 
 async function inspectConversation(convId, exact = false) {
   if (exact) lastDeckConvId = convId || '';
-  const dbPath = resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
-  if (!dbPath) return await makeEmptyContextResult(conversationDirs.some(dir => statSync(dir, { throwIfNoEntry: false })?.isDirectory()) ? null : { code: 'S3' });
-
+  const targetId = lastDeckConvId ?? convId;
+  const dbPath = resolveConversationDb(targetId, lastDeckConvId === null);
   const prefs = settingsStore.read();
+  if (!dbPath) {
+    const cloudSnapshot = targetId ? cloudTelemetryStore.read(targetId, prefs.showTurnMetrics) : null;
+    if (cloudSnapshot) {
+      return {
+        health: null,
+        uiVersion: PANEL_VERSION,
+        ...cloudSnapshot,
+        prefs,
+        ...await fetchQuota(),
+      };
+    }
+    return await makeEmptyContextResult(conversationDirs.some(dir => statSync(dir, { throwIfNoEntry: false })?.isDirectory()) ? null : { code: 'S3' });
+  }
+
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
   const health = conversationCache.health(dbPath);
   if (!snapshot) return await makeEmptyContextResult(health);
@@ -2089,6 +2104,8 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
 if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SIDECAR_WEB_PORT)) {
   const injector = deckInjector = startDeckInjector(inspectConversation, {
     productRoots: conversationDirs.map(dir => dirname(dir)),
+    needsCloudTelemetry: convId => !resolveConversationDb(convId, false),
+    onCloudTelemetry: (convId, raw) => cloudTelemetryStore.set(convId, raw),
     onStatus: state => cdpNotice.observe(state),
   });
   let stopping = false;

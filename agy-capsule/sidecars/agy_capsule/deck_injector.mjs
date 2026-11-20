@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { readPickerState, resolveInheritedLabel, syncModelPicker } from './model_picker.mjs';
+import { readCloudTrajectory } from './cloud_telemetry.mjs';
 import { createPresentation, getPresentationScript } from './ui.mjs';
 
 const { escapeHtml, appearance, cacheView, contextBreakdown, quotaView, makeRingSvg } = createPresentation();
@@ -1496,6 +1497,11 @@ function installRuntime(owner, hash) {
       }
       return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies };
     },
+    readCloudTelemetry(caller, convId) {
+      if (caller < owner) return 'superseded';
+      if (!convId || typeof convId !== 'string') return null;
+      try { return readCloudTrajectory(convId); } catch { return null; }
+    },
     apply(next, path, caller) {
       if (caller < owner) return 'superseded';
       if (caller !== owner || disposed || path !== location.pathname) return false;
@@ -1519,7 +1525,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, resolveInheritedLabel, readPickerState, syncModelPicker, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, resolveInheritedLabel, readPickerState, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const source = getPresentationScript() + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
   const code = `(()=>{const INSTANCE_TS=${Number(owner)};if(globalThis.__agyCapsuleDeck?.owner>INSTANCE_TS)return 'superseded';${getPresentationScript()}\nconst {escapeHtml,appearance,cacheView,contextBreakdown,quotaView,makeRingSvg}=globalThis.__agyCapsulePresentation;\n${functions}\nreturn installRuntime(INSTANCE_TS,${JSON.stringify(hash)});})()`;
@@ -1710,6 +1716,11 @@ export function startDeckInjector(inspect, options = {}) {
           const match = state.path.match(/\/c\/([0-9a-f-]{36})/);
           if (match && state.modelConversationId === match[1] && Array.isArray(state.modelFamilies) && state.modelFamilies.length > 0) {
             nextModels.set(match[1], state.modelFamilies);
+          }
+          if (match && options.needsCloudTelemetry?.(match[1])) {
+            const cloud = await run(`globalThis.__agyCapsuleDeck?.readCloudTelemetry(${owner},${JSON.stringify(match[1])})??null`);
+            if (cloud === 'superseded') return await supersede();
+            if (cloud) options.onCloudTelemetry?.(match[1], cloud);
           }
           // Data-source failures belong to the sidebar health path, not to CDP.
           const data = await Promise.resolve().then(() => inspect(match ? match[1] : '', true)).catch(() => null);
