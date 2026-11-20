@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.m
 import { buildRuntimeBundle, startDeckInjector } from '../agy-capsule/sidecars/agy_capsule/deck_injector.mjs';
 import { readCloudConversationSnapshot } from '../agy-capsule/sidecars/agy_capsule/cloud_telemetry.mjs';
 import { createPresentation } from '../agy-capsule/sidecars/agy_capsule/ui.mjs';
+import { CURRENT_VERSION } from '../agy-capsule/sidecars/agy_capsule/version_check.mjs';
 import { hostFixture } from './cdp-host-fixture.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.argv[2] || 'playwright');
@@ -304,6 +305,21 @@ await test('Child capsules follow the transcript in side and main views without 
   assert.equal(await child.locator('[data-el="grpCtx"]').isVisible(), false);
   assert.equal(await child.locator('[data-el="grpError"]').getAttribute('data-alert-mode'), 'error');
 
+  const running = { ...incomplete, turnQueue: null, contextTokens: 0, requestError: null,
+    prefs: { ...incomplete.prefs, showTurnMetrics: true, turnLayout: 'rows', turnMarker: 'dot', language: 'zh-TW' },
+    turnMetrics: { executionId: 'child-execution', state: 'running', startedAtMs: Date.now() - 15_000,
+      requestCount: 1, write: null, thinking: 5 } };
+  await applyChild(second, running);
+  assert.equal(await child.locator('[data-k="pillCtx"]').textContent(), '本輪');
+  await child.getByRole('button', { name: '本輪', exact: true }).click();
+  assert.equal(await child.locator('.dk-cache-bar').isVisible(), false);
+  assert.equal(await child.locator('[data-turn-metric="requests"]').textContent(), '1');
+  assert.equal(await child.locator('[data-turn-metric="write"]').textContent(), '—');
+  assert.match(await child.locator('[data-turn-row="elapsed"]').getAttribute('title'), /此子 Agent 最近一次執行/);
+  assert.equal(await child.locator('#deck-metrics-strip').getAttribute('data-turn-marker'), 'dot');
+  assert.equal(await parent.locator('[data-turn-metrics-block]').isVisible(), false);
+  await page.keyboard.press('Escape');
+
   await page.evaluate(id => {
     document.querySelector('aside:not([hidden])').remove();
     document.querySelector('main').dataset.cascadeId = id;
@@ -331,6 +347,89 @@ await test('Child capsules follow the transcript in side and main views without 
   await page.evaluate(() => globalThis.__agyCapsuleDeck.dispose());
   assert.equal(await child.count(), 0);
   assert.equal(await parent.count(), 0);
+});
+
+await test('Child footer speed and dot stay scoped to the execution and fit without context', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 700, height: 550 }, reducedMotion: 'no-preference' });
+  const id = '22222222-2222-2222-2222-222222222222';
+  await page.route('http://agy.test/**', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.goto('http://agy.test/c/11111111-1111-1111-1111-111111111111');
+  await page.setContent(`<aside style="width:240px;overflow:hidden">
+    <div data-testid="subagent-tab-conversation" data-cascade-id="${id}" style="height:150px"></div>
+    <div data-testid="subagent-tab-composer"></div>
+  </aside>`);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const applyChild = data => page.evaluate(({ id, owner, data }) =>
+    globalThis.__agyCapsuleDeck.applySubagent(data, location.pathname, owner, id), { id, owner, data });
+  const child = page.locator('[data-agy-capsule-subagent]');
+  const strip = child.locator('#deck-metrics-strip');
+  const context = child.locator('[data-el="grpCtx"]');
+  const speed = child.locator('[data-el="pillSpeed"]');
+  const dot = speed.locator('.dk-speed-dot');
+  const animation = () => dot.evaluate(node => getComputedStyle(node).animationName);
+  const measured = { executionId: 'first', generation: { requestIndex: 7, tps: 35 }, hasActiveStep: true };
+  const data = { ...snapshot(), subagent: { model: '' }, turnSpeed: measured,
+    prefs: { ...DEFAULT_SETTINGS, showSpeed: true, speedAnimation: true, showTurnMetrics: true },
+    turnMetrics: { executionId: 'first', state: 'running', startedAtMs: Date.now(), requestCount: 1, write: 12, thinking: 3 } };
+
+  assert.equal(await applyChild(data), true);
+  await context.locator('[data-el="pillSpeed"]').waitFor();
+  assert.equal(await speed.textContent(), '35.0 tok/s');
+  assert.equal(await speed.getAttribute('data-motion'), 'active');
+  assert.equal(await animation(), 'dk-speed-breathe');
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  assert.equal(await animation(), 'none');
+  assert.equal(await speed.isVisible(), true);
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+
+  data.contextTokens = data.maxContextTokens = 0;
+  await applyChild(data);
+  assert.equal(await context.locator('[data-k="pillCtx"]').textContent(), 'Turn');
+  assert.equal(await speed.isVisible(), true);
+  await page.locator('aside').evaluate(el => { el.style.width = '95px'; });
+  await speed.waitFor({ state: 'hidden' });
+  assert.equal(await context.isVisible(), true, 'fold speed first when the turn button still fits');
+  await page.locator('aside').evaluate(el => { el.style.width = '240px'; });
+  await speed.waitFor({ state: 'visible' });
+
+  data.prefs.showTurnMetrics = false;
+  await applyChild(data);
+  await strip.locator(':scope > [data-el="pillSpeed"]').waitFor();
+  assert.equal(await context.isVisible(), false, 'standalone speed does not expose a blank popover');
+  assert.equal(await speed.textContent(), '35.0 tok/s');
+  await page.locator('aside').evaluate(el => { el.style.width = '35px'; });
+  await strip.waitFor({ state: 'hidden' });
+  await page.locator('aside').evaluate(el => { el.style.width = '240px'; });
+  await speed.waitFor({ state: 'visible' });
+
+  data.prefs.speedAnimation = false;
+  await applyChild(data);
+  assert.equal(await speed.isVisible(), true);
+  assert.equal(await dot.isVisible(), false);
+  data.prefs.speedAnimation = true;
+  await applyChild(data);
+  data.turnSpeed = { ...measured, hasActiveStep: false };
+  await applyChild(data);
+  assert.equal(await speed.getAttribute('data-motion'), 'recent');
+  assert.equal(await animation(), 'none');
+
+  data.turnSpeed = { ...data.turnSpeed, executionId: 'second', generation: { requestIndex: 8, tps: 9 } };
+  await applyChild(data);
+  assert.equal(await speed.getAttribute('data-motion'), 'idle', 'the preceding run does not supply animation history');
+  assert.equal(await speed.textContent(), '9.0 tok/s');
+  data.turnSpeed = { executionId: 'third', generation: null, hasActiveStep: true };
+  await applyChild(data);
+  assert.equal(await speed.textContent(), '—', 'a new execution never shows the last measured value from an older one');
+  assert.equal(await speed.getAttribute('data-motion'), 'active');
+  data.prefs.showSpeed = false;
+  await applyChild(data);
+  assert.equal(await speed.isVisible(), false);
+  data.prefs.showSpeed = true;
+  data.turnSpeed.hasActiveStep = false;
+  await applyChild(data);
+  assert.equal(await speed.isVisible(), false, 'an inactive execution without a measurement has no speed pill');
 });
 
 await test('Sidebar clears empty or missing quotas and renders a later fresh snapshot', async t => {
@@ -445,6 +544,140 @@ await test('Sidebar skips unchanged and hidden statistics but catches up on time
   await page.locator('#sidebar-tab-stats').click();
   assert.equal(await text('#used-pct'), '25%');
   assert.equal(polls, before + 1, 'returning to statistics paints the latest snapshot without waiting for a poll');
+});
+
+await test('Sidebar version bar saves its toggle and reports manual checks without a success row', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
+  const data = snapshot();
+  data.prefs = { ...data.prefs, settingsLanguage: 'zh-TW', showTurnMetrics: true, turnLayout: 'rows' };
+  data.subagent = { model: 'Fixture' };
+  data.turnMetrics = { executionId: 'child-execution', state: 'completed', duration: 15, requestCount: 1, write: null, thinking: 5 };
+  const checks = [];
+  const saves = [];
+  const update = { status: 'update', currentVersion: CURRENT_VERSION, latestVersion: '1.5.0',
+    releaseUrl: 'https://github.com/Lumidarin/agy-capsule/releases/tag/v1.5.0' };
+  let response = update;
+  await page.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') return route.fulfill({ json: data });
+    if (path === '/api/settings') {
+      assert.equal(route.request().headers()['x-sidecar-token'], 'fixture');
+      const patch = route.request().postDataJSON();
+      saves.push(patch);
+      data.prefs = { ...data.prefs, ...patch };
+      return route.fulfill({ json: data.prefs });
+    }
+    if (path === '/api/version') {
+      checks.push(route.request().postDataJSON().mode);
+      assert.equal(route.request().headers()['x-sidecar-token'], 'fixture');
+      return route.fulfill(response ? { json: response } : { status: 403 });
+    }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  const check = page.locator('#version-check');
+  const status = page.locator('#version-status');
+  const notice = page.locator('#version-notice');
+  const toggle = page.getByRole('button', { name: '更新提醒' });
+  const version = page.locator('#version-number');
+  await notice.waitFor();
+  assert.deepEqual(checks, ['auto']);
+  assert.equal(await version.isVisible(), false, 'version bar stays hidden on the statistics tab');
+  await page.locator('#sidebar-tab-settings').click();
+  assert.equal(await version.textContent(), `v${CURRENT_VERSION}`);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+  assert.equal(await toggle.getAttribute('data-active'), 'true');
+  assert.match(await toggle.getAttribute('title'), /關閉後不再於背景檢查/);
+  assert.equal(await toggle.evaluate(el => getComputedStyle(el).borderTopColor), 'rgb(43, 127, 255)');
+  const enButton = page.locator('[data-setting-card="settingsLanguage"] .pv-pick-inline > button').first();
+  const [toggleBox, checkBox, enBox] = await Promise.all([toggle.boundingBox(), check.boundingBox(), enButton.boundingBox()]);
+  assert.ok(Math.abs(toggleBox.x - enBox.x) < 1, 'the toggle left edge aligns with EN below');
+  assert.ok(Math.abs((toggleBox.y + toggleBox.height / 2) - (checkBox.y + checkBox.height / 2)) < 2, 'both buttons are in one row');
+
+  assert.equal(await page.locator('#sidebar-settings [data-setting-card="notifyUpdates"], #setting-notify-updates').count(), 0);
+  await Promise.all([page.waitForResponse(res => res.url().endsWith('/api/settings')), toggle.click()]);
+  assert.deepEqual(saves, [{ notifyUpdates: false }]);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'false');
+  assert.equal(await toggle.getAttribute('data-active'), 'false');
+  await notice.waitFor({ state: 'hidden' });
+  await page.reload();
+  await page.locator('#version-notify[aria-pressed="false"]').waitFor({ state: 'attached' });
+  assert.deepEqual(checks, ['auto'], 'the saved opt-out still blocks automatic requests after reload');
+
+  const turn = page.locator('#sidebar-stats [data-turn-metrics-block]');
+  assert.equal(await turn.locator('[data-turn-metric="elapsed"]').textContent(), '15s');
+  assert.equal(await turn.locator('[data-turn-metric="requests"]').textContent(), '1');
+  assert.equal(await turn.locator('[data-turn-metric="write"]').textContent(), '—');
+  await page.locator('#sidebar-tab-settings').click();
+  response = { status: 'current', currentVersion: CURRENT_VERSION };
+  await check.click();
+  await page.getByRole('button', { name: '已是最新' }).waitFor();
+  assert.equal(await status.textContent(), '');
+  assert.equal(await status.evaluate(el => el.getBoundingClientRect().height), 0);
+  response = update;
+  await check.click();
+  await notice.waitFor();
+  assert.ok((await notice.textContent()).includes(`${CURRENT_VERSION} → 1.5.0`));
+  assert.equal(await check.textContent(), '檢查更新');
+  await notice.getByRole('button', { name: '暫不更新' }).click();
+  await notice.waitFor({ state: 'hidden' });
+  response = null;
+  await check.click();
+  await page.getByText('檢查失敗：無法連線至側欄的版本檢查服務。').waitFor();
+  assert.equal(await turn.isVisible(), true, 'failure in the optional version route does not lock the sidebar');
+  assert.equal(await check.textContent(), '檢查更新');
+  assert.deepEqual(checks, ['auto', 'manual', 'manual', 'manual']);
+  await Promise.all([page.waitForResponse(res => res.url().endsWith('/api/settings')), toggle.click()]);
+  assert.deepEqual(saves, [{ notifyUpdates: false }, { notifyUpdates: true }]);
+  assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+});
+
+await test('Sidebar downloads only after an update click and offers retry before reload', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
+  const data = snapshot();
+  data.prefs = { ...data.prefs, settingsLanguage: 'zh-CN' };
+  const latestVersion = '999.0.0';
+  const requests = [];
+  let respondToFirst;
+  const first = new Promise(resolve => { respondToFirst = resolve; });
+  await page.route('http://agy.test/**', async route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/context') return route.fulfill({ json: data });
+    if (url.pathname === '/api/version') return route.fulfill({ json: {
+      status: 'update', currentVersion: CURRENT_VERSION, latestVersion,
+      releaseUrl: 'https://github.com/Lumidarin/agy-capsule/releases/tag/v' + latestVersion,
+    } });
+    if (url.pathname === '/api/update') {
+      assert.equal(route.request().method(), 'POST');
+      assert.equal(route.request().headers()['x-sidecar-token'], 'fixture');
+      requests.push(route.request().postDataJSON());
+      const json = requests.length === 1 ? await first : { status: 'updated', version: latestVersion };
+      return route.fulfill({ json });
+    }
+    return route.fulfill(url.pathname === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  const button = page.locator('#version-update');
+  const message = page.locator('#version-update-status');
+  await button.waitFor();
+  assert.equal(await button.textContent(), '一键更新');
+  assert.deepEqual(requests, []);
+  assert.equal(await page.locator('#version-notice').getByText(/update\.bat|update\.sh/).count(), 0);
+  await button.click();
+  await page.getByRole('button', { name: '更新中…' }).waitFor();
+  assert.equal(await button.isDisabled(), true);
+  respondToFirst({ status: 'error', reason: 'archive' });
+  await message.getByText(/归档不完整或未通过校验.*手动更新/).waitFor();
+  assert.equal(await button.textContent(), '一键更新');
+  assert.equal(await button.isEnabled(), true);
+  await button.click();
+  await message.getByText('更新完成，正在重新加载…').waitFor();
+  assert.equal(await button.isDisabled(), true);
+  assert.deepEqual(requests, [{ version: latestVersion }, { version: latestVersion }]);
 });
 
 await test('Sidebar drops an in-flight response and never replays another conversation on tab return', async t => {
@@ -748,7 +981,8 @@ await test('Model picker submits one host option and releases the native trigger
   assert.equal(await picker.count(), 0);
   data.prefs.modelEffortPicker = true;
   await apply(page, data);
-  assert.equal(await trigger.evaluate(el => el.getBoundingClientRect().width), 22);
+  assert.equal(await trigger.getAttribute('data-deck-model-bubble'), 'hidden');
+  assert.equal(await trigger.evaluate(el => el.getBoundingClientRect().width), 0);
   await picker.click();
   assert.equal(await page.getByRole('menuitem', { name: 'Disabled', exact: true }).count(), 0);
   await page.getByRole('menuitem', { name: 'Argon (Low)', exact: true }).hover();
@@ -790,7 +1024,7 @@ await test('2.33 model picker shows the inherited effort, can hide previews, and
   });
   await page.evaluate(buildRuntimeBundle(owner).code);
   const data = snapshot();
-  Object.assign(data.prefs, { modelEffortPicker: true, keepNativeModelEntry: false });
+  Object.assign(data.prefs, { modelEffortPicker: true });
   await apply(page, data);
   const picker = page.locator('[data-el="modelPicker"]');
   assert.equal(await trigger.getAttribute('data-deck-model-bubble'), 'hidden');
@@ -868,9 +1102,9 @@ await test('Opt-in effort bar animates and switches models in place; default pic
   assert.equal(await bar.count(), 0);
 
   await toggle.check();
-  await sidebar.getByRole('link', { name: 'antigravity-Codex-Claude-effort-slider' }).waitFor();
+  await sidebar.locator('.pv-effort-bar').waitFor({ state: 'visible' });
+  assert.match(await sidebar.locator('#help-effort-bar').textContent(), /antigravity-Codex-Claude-effort-slider/);
   assert.equal(data.prefs.showEffortBar, true);
-  assert.equal(await sidebar.locator('.pv-effort-bar').isVisible(), true);
   await apply(page, data);
   assert.equal(await range.getAttribute('aria-valuetext'), 'Low');
   await claude.hover();

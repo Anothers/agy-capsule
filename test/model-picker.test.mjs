@@ -93,21 +93,18 @@ test('direct-click effort inheritance follows current tier and downgrades XHigh/
   assert.equal(resolveInheritedLabel(argon, 'Gemini 4 Argon (Low)'), 'Gemini 4 Argon (Low)');
 });
 
-test('keepNativeModelEntry, hideModelTags, hideDefaultEffort, customizeModelList and hiddenModels settings validate and normalize cleanly', () => {
-  assert.equal(DEFAULT_SETTINGS.keepNativeModelEntry, true);
+test('hideModelTags, hideDefaultEffort, customizeModelList and hiddenModels settings validate and normalize cleanly', () => {
   assert.equal(DEFAULT_SETTINGS.hideModelTags, false);
   assert.equal(DEFAULT_SETTINGS.hideDefaultEffort, false);
   assert.equal(DEFAULT_SETTINGS.customizeModelList, false);
   assert.deepEqual(DEFAULT_SETTINGS.hiddenModels, []);
   const normalized = normalizeSettings({
     modelEffortPicker: true,
-    keepNativeModelEntry: false,
     hideModelTags: true,
     hideDefaultEffort: true,
     customizeModelList: true,
     hiddenModels: ['Gemini 3.8 Flash', ' ', 'Gemini 3.8 Flash', 42, 'GPT-OSS 120B (Medium)'],
   });
-  assert.equal(normalized.keepNativeModelEntry, false);
   assert.equal(normalized.hideModelTags, true);
   assert.equal(normalized.hideDefaultEffort, true);
   assert.equal(normalized.customizeModelList, true);

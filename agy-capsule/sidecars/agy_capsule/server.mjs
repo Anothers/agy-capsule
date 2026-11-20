@@ -6,22 +6,27 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startDeckInjector } from './deck_injector.mjs';
 import { createSettingsStore, DEFAULT_SETTINGS } from './settings.mjs';
 import { createPresentation, getPresentationScript } from './ui.mjs';
-import { summarizeGeneration, summarizeTurnSpeed, summarizeTurnQueue } from './metrics.mjs';
+import { summarizeGeneration, summarizeSubagentTurnSpeed, summarizeTurnSpeed, summarizeTurnQueue } from './metrics.mjs';
 import { classifyRequestError } from './errors.mjs';
 import { createSqliteSnapshotCache } from './sqlite_cache.mjs';
 import { startLsWatchdog } from './ls_watchdog.mjs';
 import { startSelfReloadWatcher } from './reload.mjs';
-import { summarizeTurnMetrics } from './turn_metrics.mjs';
+import { summarizeSubagentExecution, summarizeSubagentTurnMetrics, summarizeTurnMetrics } from './turn_metrics.mjs';
 import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 import { createCloudTelemetryStore } from './cloud_telemetry.mjs';
 import { createUsageHistory } from './usage_history.mjs';
 import { createUsagePresentation } from './usage_ui.mjs';
 import { EFFORT_BAR_CSS, EFFORT_TRACK_MARKUP } from './effort_bar.mjs';
+import { CURRENT_VERSION, VERSION_ROUTE, createVersionChecker } from './version_check.mjs';
+import { createVersionPanel } from './version_ui.mjs';
+import { createPluginUpdater, UPDATE_ROUTE } from './version_update.mjs';
 
 const settingsStore = createSettingsStore();
+const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
+const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 133;
+const PANEL_VERSION = 140;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -403,9 +408,9 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
     // A queued user input is not a new running turn until AGY consumes it.
     userStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 AND status != 11 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
     if (includeTurnMetrics) metricsUserStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
-    const firstTurnStep = userStepIndex ?? metricsUserStepIndex;
-    if (firstTurnStep !== null || subagent) {
-      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep ?? 0).map(step => {
+    const firstTurnStep = subagent ? 0 : userStepIndex ?? metricsUserStepIndex;
+    if (firstTurnStep !== null) {
+      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep).map(step => {
         const fields = parsePbMap(Buffer.from(step.metadata || []));
         const stamp = fields.get(7)?.[0] || fields.get(8)?.[0];
         const time = stamp ? parsePbMap(stamp) : new Map();
@@ -525,7 +530,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const totalOutputTokens = Math.round(rawOut * genScale);
   const totalThinkingTokens = Math.round(rawThink * genScale);
 
-  let turnQueue;
+  let turnQueue, turnSpeed = null, childTurnMetrics = null;
   if (subagent) {
     // Parent messages and task notifications can start fresh executions without
     // a USER_INPUT step. Never roll previous executions into this one's alerts.
@@ -540,17 +545,36 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
       const linked = request.stepIndices.map(idx => executionByStep.get(idx)).filter(Boolean);
       return linked.length > 0 && linked.every(id => id === executionId);
     }) : [];
-    turnQueue = summarizeTurnQueue(requests, steps, steps[0]?.idx, executors.filter(item => item.executionId === executionId), true);
+    const childExecutors = executors.filter(item => item.executionId === executionId);
+    turnQueue = summarizeTurnQueue(requests, steps, steps[0]?.idx, childExecutors, true);
     latestRequestError = requests.at(-1)?.requestError ?? classifyRequestError();
+    const execution = summarizeSubagentExecution(steps, childExecutors);
+    if (execution) {
+      let associationIncomplete = false;
+      // Turn totals and speed both require unambiguous execution attribution.
+      const executionRequests = parsedRequests.filter(request => {
+        const fromCurrentInput = executionByStep.get(request.lastStepIndex) === executionId;
+        if (!request.stepIndices.length) return fromCurrentInput;
+        const linked = request.stepIndices.map(idx => executionByStep.get(idx));
+        if (linked.every(id => id === executionId)) return true;
+        if (includeTurnMetrics && (linked.includes(executionId) || (linked.includes(undefined) && fromCurrentInput)
+          || (linked.every(id => !id) && request.stepIndices.some(idx => idx >= steps[0].idx)))) associationIncomplete = true;
+        return false;
+      });
+      turnSpeed = summarizeSubagentTurnSpeed(executionRequests, steps, execution);
+      if (includeTurnMetrics) childTurnMetrics = summarizeSubagentTurnMetrics(executionRequests, execution, associationIncomplete);
+    }
   } else {
     turnQueue = summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors);
+    turnSpeed = summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex);
   }
 
   return {
     ...(subagent && { subagent: { model: parsedRequests.at(-1)?.modelDisplayName || '' } }),
-    turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
+    turnSpeed,
     turnQueue,
-    turnMetrics: includeTurnMetrics ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
+    turnMetrics: subagent ? childTurnMetrics : includeTurnMetrics
+      ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
     requestError: latestRequestError,
     generation: summarizeGeneration(latestGeneration),
     cachedIn: latest.cachedIn,
@@ -1030,6 +1054,31 @@ const UI_HTML = `<!DOCTYPE html>
     }
     .settings { display: flex; flex-direction: column; gap: 0; width: 100%; }
     .sidebar-content { padding: 12px 14px; }
+    .version-panel { max-width: 1120px; margin: 0 auto 10px; font-size: 12.5px; color: var(--foreground, #ebebeb); }
+    .sidebar-nav:has(.sidebar-tabs[data-view="stats"]) + .version-panel :is(.version-line, #version-status) { display: none; }
+    .sidebar-nav:has(.sidebar-tabs[data-view="stats"]) + .version-panel:not(:has(#version-notice:not([hidden]))) { display: none; }
+    .version-line, .version-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
+    .version-line { justify-content: space-between; flex-wrap: nowrap; }
+    .version-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 5px; width: 124px; margin-left: auto; flex-shrink: 0; }
+    .version-controls > .pv-swatch { width: 100%; padding: 4px 4px; white-space: nowrap; }
+    .version-panel[lang="en"] .version-controls { width: auto; min-width: 124px; grid-template-columns: auto auto; }
+    .version-panel[lang="en"] .version-controls > .pv-swatch { padding: 4px 8px; }
+    #version-check { color: var(--foreground, #ebebeb); }
+    #version-check:disabled { opacity: .7; cursor: wait; }
+    .version-button { min-height: 28px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--border, #555); background: var(--card, #222225); color: inherit; font: inherit; cursor: pointer; }
+    .version-button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground, #ebebeb) 9%, var(--card, #222225)); }
+    .version-button:disabled { opacity: .7; cursor: wait; }
+    .version-panel :is(button, a):focus-visible { outline: 2px solid #388bfd; outline-offset: 1px; }
+    .version-feedback { margin: 0; line-height: 1.5; }
+    .version-feedback:not(:empty) { margin-top: 5px; }
+    .version-notice { margin-top: 7px; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border, #555); background: var(--card, #222225); line-height: 1.5; }
+    .version-notice p { margin: 4px 0; }
+    .version-notice .version-feedback:empty { margin: 0; }
+    .version-notice a { color: inherit; text-decoration: underline; }
+    .version-actions { margin-top: 5px; }
+    #version-update { border-color: #2b7fff; background: color-mix(in srgb, #2b7fff 18%, var(--card, #222225)); }
+    #version-update:hover:not(:disabled) { background: color-mix(in srgb, #2b7fff 29%, var(--card, #222225)); }
+    @media(pointer:coarse) { .version-button, #version-notify, .version-actions a { min-height: 44px; } .version-actions a { display: inline-flex; align-items: center; } }
     .sidebar-view[hidden] { display: none; }
     .sidebar-nav { position: sticky; top: 0; z-index: 20; margin: -12px -14px 10px; padding: 8px 14px; background: var(--background, #141414); border-bottom: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.24)) 65%, transparent); }
     .sidebar-tabs { position: relative; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; max-width: 1120px; margin: 0 auto; padding: 2.5px; border-radius: 7px; background: color-mix(in srgb, var(--foreground, #ebebeb) 6%, var(--background, #141414)); border: 1px solid color-mix(in srgb, var(--foreground, #ebebeb) 10%, transparent); }
@@ -1391,13 +1440,8 @@ const UI_HTML = `<!DOCTYPE html>
     @container model-card (min-width: 510px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(4, auto); } }
     @container model-card (min-width: 640px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(5, auto); } }
     @container model-card (min-width: 740px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(6, auto); } }
-    .pv-mp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 11.5px; transition: opacity .18s ease; }
-    .pv-mp-capsule { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
-    .pv-mp-bubble { width: 20px; height: 20px; border-radius: 999px; display: inline-grid; place-items: center; background: var(--secondary, rgba(142,142,147,.16)); color: var(--muted-foreground, #8e8e93); font-size: 12px; transition: opacity .18s ease, width .18s ease, margin .18s ease; overflow: hidden; }
-    .pv-mp-pill { gap: 4px; padding: 2px 7px; }
-    .pv-mp-name { color: var(--foreground, #ebebeb); }
-    .pv-mp-effort { color: var(--muted-foreground, #8e8e93); }
-    .pv-mp-row { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 6px 2px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.28)) 85%, transparent); background: var(--card, color-mix(in srgb, var(--foreground, #ebebeb) 4%, var(--background, #141414))); box-shadow: 0 1px 2.5px rgba(0, 0, 0, .08); color: var(--foreground, #ebebeb); white-space: nowrap; }
+    .pv-mp { display: flex; flex-wrap: nowrap; align-items: center; gap: 8px; font-size: 11.5px; transition: opacity .18s ease; }
+    .pv-mp-row { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 6px 2px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.28)) 85%, transparent); background: var(--card, color-mix(in srgb, var(--foreground, #ebebeb) 4%, var(--background, #141414))); box-shadow: 0 1px 2.5px rgba(0, 0, 0, .08); color: var(--foreground, #ebebeb); white-space: nowrap; flex-shrink: 0; }
     .pv-mp-row-main { display: inline-flex; align-items: center; min-width: 0; }
     .pv-mp-row-name { color: var(--foreground, #ebebeb); }
     .pv-mp-row-effort { display: inline-block; overflow: hidden; white-space: nowrap; max-width: 40px; margin-left: 5px; opacity: .75; color: var(--muted-foreground, #8e8e93); transition: max-width .2s ease, opacity .18s ease, margin-left .2s ease; }
@@ -1405,7 +1449,6 @@ const UI_HTML = `<!DOCTYPE html>
     .pv-mp-row-chev { display: inline-flex; align-items: center; color: var(--muted-foreground, #8e8e93); opacity: .75; flex-shrink: 0; }
     .pv-mp-row-chev svg { width: 12px; height: 12px; display: block; }
     [data-setting-card="modelEffortPicker"][data-checked="false"] .pv-mp { opacity: .4; }
-    [data-setting-card="modelEffortPicker"][data-keep-native="false"] .pv-mp-bubble { width: 0; opacity: 0; margin-right: -6px; }
     [data-setting-card="modelEffortPicker"][data-hide-default-effort="true"] .pv-mp-row-effort { max-width: 0; opacity: 0; margin-left: 0; }
     [data-setting-card="modelEffortPicker"][data-hide-model-tags="true"] .pv-mp-row-tag { max-width: 0; opacity: 0; margin-left: 0; padding-left: 0; padding-right: 0; }
     .pv-model-list { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 4px; }
@@ -1421,11 +1464,14 @@ const UI_HTML = `<!DOCTYPE html>
     [data-setting-card="showUsageActivity"][data-checked="false"] .pv-usage-heat,
     [data-setting-card="showModelUsage"][data-checked="false"] .pv-usage-bars { opacity: .4; }
     ${EFFORT_BAR_CSS}
-    .pv-effort-bar { max-width: 226px; margin-top: 6px; }
-    .setting-effort-credit { font-size: 11.5px; color: var(--muted-foreground, #8e8e93); overflow-wrap: anywhere; }
-    .setting-effort-credit a { color: inherit; text-underline-offset: 2px; }
-    .setting-effort-credit a:hover, .setting-effort-credit a:focus-visible { color: var(--foreground, CanvasText); }
-    .setting-model-card:not([data-effort-bar="true"]) :is(.setting-effort-credit, .pv-effort-bar) { display: none; }
+    .pv-effort-bar { flex: 1 1 88px; min-width: 68px; max-width: 132px; display: flex; align-items: center; }
+    .pv-effort-bar .ces-inline { width: 100%; padding-top: 0; }
+    .pv-effort-bar .ces-track { height: 14px; --ces-fill: calc(100% - 7px) !important; box-shadow: 0 0 8px rgba(168, 85, 247, 0.35), inset 0 1px 1.5px rgba(0, 0, 0, 0.24) !important; }
+    .pv-effort-bar .ces-fill { border-radius: 7px 0 0 7px; }
+    .pv-effort-bar .ces-knob { width: 14px; height: 14px; margin: -7px 0 0 -7px; }
+    .setting-model-card:not([data-effort-bar="true"]) .pv-effort-bar { display: none; }
+    .setting-pair-item > .setting-head { display: inline-flex; align-items: center; gap: 6px; }
+    .setting-model-card:not([data-help-dismissed]):has([data-setting-card="showEffortBar"] .setting-head:hover, [data-setting-card="showEffortBar"]:focus-within) > #help-effort-bar { visibility: visible; }
     @media(pointer:coarse) { .pv-swatch { min-height: 40px; } }
   </style>
 </head>
@@ -1437,6 +1483,25 @@ const UI_HTML = `<!DOCTYPE html>
       <button type="button" id="sidebar-tab-stats" role="tab" aria-selected="true" aria-controls="sidebar-stats" tabindex="0">统计</button>
       <span class="sidebar-toggle-track" aria-hidden="true"><span class="sidebar-toggle-thumb"></span></span>
       <button type="button" id="sidebar-tab-settings" role="tab" aria-selected="false" aria-controls="sidebar-settings" tabindex="-1">设置</button>
+    </div>
+  </div>
+  <div class="version-panel" id="version-panel">
+    <div class="version-line">
+      <strong id="version-number">${CURRENT_VERSION ? 'v' + CURRENT_VERSION : '—'}</strong>
+      <div class="version-controls">
+        <button type="button" class="pv-swatch" id="version-notify" aria-pressed="${DEFAULT_SETTINGS.notifyUpdates}" data-active="${DEFAULT_SETTINGS.notifyUpdates}" data-toggle-setting="notifyUpdates"></button>
+        <button type="button" class="pv-swatch" id="version-check" aria-describedby="version-status"></button>
+      </div>
+    </div>
+    <p class="version-feedback" id="version-status" role="status"></p>
+    <div class="version-notice" id="version-notice" hidden>
+      <strong id="version-available" role="status" aria-atomic="true"></strong>
+      <div class="version-actions">
+        <button type="button" class="version-button" id="version-update" aria-describedby="version-update-status"></button>
+        <a id="version-release" target="_blank" rel="noopener noreferrer"></a>
+        <button type="button" class="version-button" id="version-dismiss"></button>
+      </div>
+      <p class="version-feedback" id="version-update-status" role="status" aria-atomic="true"></p>
     </div>
   </div>
   <aside class="cdp-notice" id="cdp-notice" role="status" aria-atomic="true" hidden>
@@ -1554,18 +1619,12 @@ const UI_HTML = `<!DOCTYPE html>
     ])}
 
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
-    <div class="setting-card setting-model-card" data-setting-card="modelEffortPicker" data-checked="${DEFAULT_SETTINGS.modelEffortPicker}" data-keep-native="${DEFAULT_SETTINGS.keepNativeModelEntry}" data-hide-model-tags="${DEFAULT_SETTINGS.hideModelTags}" data-hide-default-effort="${DEFAULT_SETTINGS.hideDefaultEffort}" data-customize-models="false">
+    <div class="setting-card setting-model-card" data-setting-card="modelEffortPicker" data-checked="${DEFAULT_SETTINGS.modelEffortPicker}" data-hide-model-tags="${DEFAULT_SETTINGS.hideModelTags}" data-hide-default-effort="${DEFAULT_SETTINGS.hideDefaultEffort}" data-customize-models="false">
       <div class="setting-model-grid">
         <div class="setting-pair-item">
           <label class="setting-check">
             <input id="setting-model-effort-picker" name="modelEffortPicker" type="checkbox"${DEFAULT_SETTINGS.modelEffortPicker ? ' checked' : ''} />
             <span data-i18n="modelEffortPicker"></span>
-          </label>
-        </div>
-        <div class="setting-pair-item" data-setting-card="keepNativeModelEntry" data-checked="${DEFAULT_SETTINGS.keepNativeModelEntry}" data-parent-off="${!DEFAULT_SETTINGS.modelEffortPicker}">
-          <label class="setting-check">
-            <input id="setting-keep-native-model-entry" name="keepNativeModelEntry" type="checkbox"${DEFAULT_SETTINGS.keepNativeModelEntry ? ' checked' : ''} />
-            <span data-i18n="keepNativeModelEntry"></span>
           </label>
         </div>
         <div class="setting-pair-item" data-setting-card="hideModelTags" data-checked="${DEFAULT_SETTINGS.hideModelTags}" data-parent-off="${!DEFAULT_SETTINGS.modelEffortPicker}">
@@ -1593,29 +1652,24 @@ const UI_HTML = `<!DOCTYPE html>
           </label>
         </div>
         <div class="setting-pair-item" data-setting-card="showEffortBar" data-checked="false" data-parent-off="${!DEFAULT_SETTINGS.modelEffortPicker}">
-          <label class="setting-check">
-            <input name="showEffortBar" type="checkbox" disabled />
-            <span data-i18n="showEffortBar"></span>
-          </label>
+          <div class="setting-head">
+            <label class="setting-check">
+              <input name="showEffortBar" type="checkbox" disabled aria-describedby="help-effort-bar" />
+              <span data-i18n="showEffortBar"></span>
+            </label><span class="setting-help-dot" aria-hidden="true">?</span>
+          </div>
         </div>
       </div>
       <div class="setting-preview" aria-hidden="true">
         <div class="pv-mp">
-          <span class="pv-mp-capsule">
-            <span class="pv-mp-bubble">⋯</span>
-            <span class="pv-pill pv-mp-pill"><span class="pv-mp-name">Argon</span><span class="pv-mp-effort">High</span></span>
-          </span>
           <span class="pv-mp-row">
             <span class="pv-mp-row-main"><span class="pv-mp-row-name">Gemini 4 Argon</span><span class="pv-mp-row-effort">High</span><span class="pv-mp-row-tag">New</span></span>
             <span class="pv-mp-row-chev"><svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z"/></svg></span>
           </span>
-        </div>
-        <div class="ces-ag-effort-row pv-effort-bar" data-ces-max="true">
-          <div class="ces-ag-effort-head"><span class="ces-ag-effort-title" data-i18n="effortLevel"></span><span class="ces-ag-effort-value" style="color:#8b5cf6">High</span></div>
-          ${EFFORT_TRACK_MARKUP}
+          <div class="pv-effort-bar">${EFFORT_TRACK_MARKUP}</div>
         </div>
       </div>
-      <div class="setting-effort-credit"><span data-i18n="effortBarCredit"></span> <a href="https://github.com/LLYSH-HANNARI/antigravity-Codex-Claude-effort-slider" target="_blank" rel="noopener noreferrer">antigravity-Codex-Claude-effort-slider</a></div>
+      <div class="metric-help" id="help-effort-bar" role="tooltip"><span data-i18n="effortBarCredit"></span> antigravity-Codex-Claude-effort-slider</div>
       <div class="pv-model-list" id="setting-model-list" data-toggle-setting="hiddenModels" role="group"></div>
     </div>
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}
@@ -1737,6 +1791,18 @@ const UI_HTML = `<!DOCTYPE html>
     let prefsSig = JSON.stringify(prefs);
     let labels = presentation.apply(document.body, prefs);
     let settingsLabels = presentation.dictionaries[prefs.settingsLanguage];
+    const versionPanel = (${createVersionPanel.toString()})(
+      document.getElementById('version-panel'),
+      async mode => {
+        const res = await postApi('${VERSION_ROUTE}', { mode }, AbortSignal.timeout(6000));
+        return res.json();
+      },
+      saveSettings,
+      async version => {
+        const res = await postApi('${UPDATE_ROUTE}', { version }, AbortSignal.timeout(60_000));
+        return res.json();
+      },
+    );
     let savingSettings = false;
     let settingsEpoch = 0;
     let lastData = null, refreshing = false, refreshFailures = 0;
@@ -1886,6 +1952,7 @@ const UI_HTML = `<!DOCTYPE html>
       prefsSig = JSON.stringify(prefs);
       labels = presentation.apply(document.body, prefs);
       settingsLabels = presentation.dictionaries[prefs.settingsLanguage] || presentation.dictionaries['zh-CN'];
+      versionPanel.sync(prefs, settingsLabels);
       sidebarTabs.lang = prefs.settingsLanguage;
       sidebarTabs.setAttribute('aria-label', settingsLabels.sidebarNavigation);
       document.getElementById('sidebar-tab-stats').textContent = settingsLabels.sidebarStats;
@@ -1921,13 +1988,12 @@ const UI_HTML = `<!DOCTYPE html>
       if (speedAnimCard) speedAnimCard.dataset.parentOff = String(prefs.showSpeed === false);
       const modelPickerCard = document.querySelector('[data-setting-card="modelEffortPicker"]');
       if (modelPickerCard) {
-        modelPickerCard.dataset.keepNative = String(prefs.keepNativeModelEntry !== false);
         modelPickerCard.dataset.hideModelTags = String(prefs.hideModelTags === true);
         modelPickerCard.dataset.hideDefaultEffort = String(prefs.hideDefaultEffort === true);
         modelPickerCard.dataset.effortBar = String(prefs.modelEffortPicker === true && prefs.showEffortBar === true);
         modelPickerCard.dataset.customizeModels = String(prefs.modelEffortPicker === true && prefs.customizeModelList === true && expandModelList === true);
       }
-      for (const subKey of ['keepNativeModelEntry', 'hideModelTags', 'hideDefaultEffort', 'customizeModelList', 'showEffortBar']) {
+      for (const subKey of ['hideModelTags', 'hideDefaultEffort', 'customizeModelList', 'showEffortBar']) {
         const subCard = document.querySelector('[data-setting-card="' + subKey + '"]');
         if (subCard) subCard.dataset.parentOff = String(prefs.modelEffortPicker !== true);
       }
@@ -1972,7 +2038,8 @@ const UI_HTML = `<!DOCTYPE html>
       if (token) headers['X-Sidecar-Token'] = token;
       const res = await (window.sidecar?.fetch || fetch)(path, { method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(data) });
       if (isCurrent && !isCurrent()) return null;
-      if (res.status === 401 || res.status === 403) {
+      // Version actions report their own errors without locking statistics.
+      if (path !== '${VERSION_ROUTE}' && path !== '${UPDATE_ROUTE}' && (res.status === 401 || res.status === 403)) {
         panelLocked = true;
         document.querySelector('.sidebar-content').style.display = 'none';
         const notice = document.getElementById('panel-auth-notice');
@@ -2275,6 +2342,7 @@ const UI_HTML = `<!DOCTYPE html>
           if (sidebarView === 'stats') replayStats();
           renderHealthNotice();
         }
+        if (!savingSettings && requestedSettingsEpoch === settingsEpoch) void versionPanel.checkAutomatically();
       } catch {
         if (!panelLocked && isCurrent()) {
           refreshFailures++;
@@ -2454,7 +2522,7 @@ const UI_HTML = `<!DOCTYPE html>
         const detailPop = control.closest('.pv-detail-pop');
         const modelCard = control.closest('.setting-model-card');
         const parentDisabled = (control.name === 'speedAnimation' && prefs.showSpeed === false)
-          || (['keepNativeModelEntry', 'hideModelTags', 'hideDefaultEffort', 'customizeModelList', 'showEffortBar'].includes(control.name) && prefs.modelEffortPicker !== true)
+          || (['hideModelTags', 'hideDefaultEffort', 'customizeModelList', 'showEffortBar'].includes(control.name) && prefs.modelEffortPicker !== true)
           || (control.dataset.uiToggle === 'expandModelList' && (prefs.modelEffortPicker !== true || prefs.customizeModelList !== true))
           || (!!modelCard && !control.closest('.setting-pair-item') && (prefs.modelEffortPicker !== true || prefs.customizeModelList !== true || !expandModelList))
           || (!!optionCard && !control.closest('.setting-pair-item') && optionCard.dataset.checked === 'false')
@@ -2511,6 +2579,8 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
   }, 'POST');
   app.api('/api/usage', (data) => inspectUsage(settingsStore.read(), data?.conversationId ?? app.config?.conversationId ?? ''), 'POST');
   app.api('/api/settings', (data) => settingsStore.update(data), 'POST');
+  app.api(VERSION_ROUTE, data => checkVersion(data?.mode), 'POST');
+  app.api(UPDATE_ROUTE, data => updatePlugin(data?.version), 'POST');
   app.api('/api/fix-cdp-shortcut', () => cdpNotice.fixShortcuts(), 'POST');
   const ready = app.run();
   installAsyncHostRoutes(app);

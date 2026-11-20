@@ -35,7 +35,7 @@ Provides **Statistics** and **Settings** tabs at the top (settings live exclusiv
   - **Cache expiry alert**: `true` with configurable yellow/red thresholds (`cacheWarnMin`: `3m`, `1–998`; `cacheColdMin`: `4m`, `2–999`; synced with panel Cache row)
   - **Context overload alert**: `true` (capsule text turns yellow above 75% and red above 90%)
   - **Request failure capsule**: `true`
-  - **Restart recovery notice**: `true` (when a previously-enabled footer capsule fails to attach after a launch that skipped the shortcut — e.g. Antigravity auto-update — shows a targeted sidebar notice with Windows shortcut detection / one-click restore, and sends at most one desktop notification per session)
+  - **Restart recovery notice**: `true` (if the debug port is unavailable after a launch without the debugging flag and the footer capsule previously worked, shows a sidebar notice with Windows shortcut detection / one-click restore and sends at most one desktop notification per session)
   - **Generation speed** (`true`) + **Effects** (`false`; automatically forced off when speed is disabled)
   - **Context breakdown**: `true`; `columns` (default) or `rows`, `square` (default) or `dot` markers, with toggleable and drag-reorderable column fields (`Name`: `true`, `Value`: `true`, `%`: `false`; default order `label,value,percent`)
   - **Last request**: `true` (shows `TTFT–total duration` range and generation speed)

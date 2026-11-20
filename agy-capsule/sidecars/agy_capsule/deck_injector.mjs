@@ -136,11 +136,11 @@ function pageMount(d, childAnchor = null) {
   }
 
   // Upgrade or initialize DOM structure in-place
-  if (root.getAttribute('data-deck-ver') !== '127') {
+  if (root.getAttribute('data-deck-ver') !== '128') {
     release(root);
     root._pinnedGroup = null;
     root.removeAttribute('data-pinned');
-    root.setAttribute('data-deck-ver', '127');
+    root.setAttribute('data-deck-ver', '128');
     root._speedActivity = null;
     root._motionPrev = null;
     root.style.cssText = [
@@ -309,6 +309,7 @@ function pageMount(d, childAnchor = null) {
         }
         #deck-metrics-strip .dk-q-pair[hidden] { display: none; }
         #deck-metrics-strip .dk-grp[hidden] { display: none; }
+        #deck-metrics-strip[data-child-turn-only] .dk-ctx-pop :is(.dk-cache-bar, .dk-summary-row, .dk-track, .dk-list, [data-generation-block]) { display: none; }
         #deck-metrics-strip [data-el="childModel"] { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         #deck-metrics-strip [data-el="childModel"][hidden] { display: none; }
         #deck-metrics-strip [data-el="grpError"] .dk-pill,
@@ -329,6 +330,7 @@ function pageMount(d, childAnchor = null) {
         #deck-metrics-strip[data-context-tone="warning"] [data-k="pillCtx"] { color: #d4940a !important; }
         #deck-metrics-strip[data-context-tone="error"] [data-k="pillCtx"] { color: #e06c75 !important; }
         #deck-metrics-strip .dk-speed { padding-left: 2px; font-variant-numeric: tabular-nums; }
+        #deck-metrics-strip > .dk-speed { flex: none; padding: 3px 5px; white-space: nowrap; }
         #deck-metrics-strip .dk-speed-dot { display: none; }
         #deck-metrics-strip .dk-speed[data-motion] { display: inline-flex; align-items: center; gap: 4px; transition: color .35s ease; }
         #deck-metrics-strip .dk-speed[data-motion] .dk-speed-dot { display: inline-block; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
@@ -983,6 +985,18 @@ function pageMount(d, childAnchor = null) {
     footerLeft.appendChild(host);
   }
   const labels = presentation.apply(root, d.prefs);
+  const contextPill = root.querySelector('[data-el="grpCtx"] .dk-pill');
+  const pillSpeed = root.querySelector('[data-el="pillSpeed"]');
+  const tps = d.turnSpeed?.generation?.tps;
+  const hasSpeed = Number.isFinite(tps) && tps >= 0;
+  const motionEnabled = d.prefs?.speedAnimation === true;
+  const cancelBtnVisible = !childAnchor && !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
+  const running = !!d.turnSpeed?.hasActiveStep || cancelBtnVisible;
+  const showPillSpeed = d.requestTimingAvailable !== false && d.prefs?.showSpeed !== false
+    && (childAnchor ? hasSpeed || (running && motionEnabled) : !!d.turnSpeed || running);
+  pillSpeed.hidden = !showPillSpeed;
+  const childTurnOnly = !!(childAnchor && !d.hasContext && d.turnMetrics && d.prefs?.showTurnMetrics !== false);
+  let childContext;
   if (childAnchor) {
     root.style.maxWidth = 'calc(100% - 12px)';
     const model = root.querySelector('[data-el="childModel"]');
@@ -990,17 +1004,24 @@ function pageMount(d, childAnchor = null) {
     model.hidden = !modelName;
     if (model.textContent !== modelName) model.textContent = modelName;
     model.title = labels.childRequestModel + ': ' + modelName;
-    root.querySelector('[data-el="grpCtx"]').hidden = !d.hasContext;
+    childContext = contextPill.parentElement;
+    childContext.hidden = !d.hasContext && !childTurnOnly;
+    root.toggleAttribute('data-child-turn-only', childTurnOnly);
+    // Speed alone needs no context button or empty popover.
+    const speedParent = childContext.hidden ? root : contextPill;
+    if (pillSpeed.parentElement !== speedParent) {
+      if (speedParent === root) root.insertBefore(pillSpeed, childContext);
+      else contextPill.appendChild(pillSpeed);
+    }
   } else {
     syncModelPicker(root, footerLeft, d.prefs, labels, findFooterLeft,
       presentation.dictionaries[d.prefs?.settingsLanguage] || labels);
   }
   presentation.renderContextTooltips(root, d.contextData, labels);
   const now = Date.now();
-  const cancelBtnVisible = !childAnchor && !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
   const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError, turnQueue: d.turnQueue }, d.prefs, labels, now, cancelBtnVisible || !!d.turnQueue?.hasPendingPlanner);
   root.querySelector('[data-el="grpQuota"]').hidden = !!childAnchor || d.cloudPaygo;
-  if (childAnchor) host.hidden = !alerts.visible && !d.hasContext && root.querySelector('[data-el="childModel"]').hidden;
+  if (childAnchor) host.hidden = !alerts.visible && childContext.hidden && !showPillSpeed && root.querySelector('[data-el="childModel"]').hidden;
   if (childAnchor) host.style.display = host.hidden ? 'none' : 'block';
   if (root._pinnedGroup?.hidden) root._closePinned();
   root._refreshCacheTooltip = () => {
@@ -1009,16 +1030,10 @@ function pageMount(d, childAnchor = null) {
   root._refreshCacheTooltip();
   presentation.renderGeneration(root.querySelector('.dk-ctx-pop'), d.generation, labels, d.prefs);
   presentation.renderTurnMetrics(root, d.turnMetrics, labels, d.prefs);
-  const pillSpeed = root.querySelector('[data-el="pillSpeed"]');
-  const tps = d.turnSpeed?.generation?.tps;
-  // Turn scope comes from persisted USER_INPUT, not cancel-button appearance.
+  // A child can execute again without changing either the URL or transcript.
   // Activity and the last completed request's speed are independent signals.
-  const turnKey = location.pathname + ':' + (d.turnSpeed?.userStepIndex ?? 'none');
+  const turnKey = location.pathname + ':' + ((childAnchor ? d.turnSpeed?.executionId : d.turnSpeed?.userStepIndex) ?? 'none');
   const requestIndex = d.turnSpeed?.generation?.requestIndex ?? null;
-  const running = !!d.turnSpeed?.hasActiveStep || cancelBtnVisible;
-  const hasSpeed = Number.isFinite(tps) && tps >= 0;
-  const motionEnabled = d.prefs?.speedAnimation === true;
-  pillSpeed.hidden = d.requestTimingAvailable === false || d.prefs?.showSpeed === false || (!d.turnSpeed && !running);
   const speedValue = pillSpeed.querySelector('[data-generation="speed"]');
   const speedText = hasSpeed ? tps.toFixed(1) + ' tok/s' : '—';
   if (speedValue.textContent !== speedText) speedValue.textContent = speedText;
@@ -1042,8 +1057,7 @@ function pageMount(d, childAnchor = null) {
     pillSpeed.removeAttribute('data-motion');
     pillSpeed.removeAttribute('data-tier');
   }
-  const contextPill = root.querySelector('[data-el="grpCtx"] .dk-pill');
-  contextPill.setAttribute('aria-label', labels.context);
+  contextPill.setAttribute('aria-label', childTurnOnly ? labels.turnMetrics : labels.context);
   for (const node of [contextPill, ...contextPill.querySelectorAll('[title]')]) node.removeAttribute('title');
   root.querySelector('[data-el="grpQuota"] .dk-pill').setAttribute('aria-label', labels.quota);
 
@@ -1052,7 +1066,7 @@ function pageMount(d, childAnchor = null) {
     if (el && el.textContent !== val) el.textContent = val;
   };
 
-  setK('pillCtx', d.pillCtx);
+  setK('pillCtx', childTurnOnly ? labels.turnLabel : d.pillCtx);
   setK('usedPctText', d.pillCtx);
   setK('usedFrac', d.usedFrac);
   setK('valCacheHit', d.valCacheHit);
@@ -1358,12 +1372,16 @@ function pageMount(d, childAnchor = null) {
   };
   root._adjustLayout = () => {
     if (childAnchor) {
-      root.classList.remove('dk-hide-all');
+      root.classList.remove('dk-hide-all', 'dk-hide-speed');
       const model = root.querySelector('[data-el="childModel"]');
       // Allow a readable ellipsis, but don't show a sliver of the model or
       // clip the non-shrinking pills when the host splits the sidebar again.
-      if (!host.hidden && (root.scrollWidth > root.clientWidth + 1 ||
-          (!model.hidden && model.clientWidth < Math.min(24, model.scrollWidth)))) {
+      const overflows = () => root.scrollWidth > root.clientWidth + 1 ||
+        (!model.hidden && model.clientWidth < Math.min(24, model.scrollWidth));
+      if (!host.hidden && overflows() && showPillSpeed && (!childContext.hidden || !model.hidden || alerts.visible)) {
+        root.classList.add('dk-hide-speed');
+      }
+      if (!host.hidden && overflows()) {
         root._closePinned();
         root.classList.add('dk-hide-all');
       }
@@ -1447,7 +1465,8 @@ function pageMount(d, childAnchor = null) {
     valCacheHitKEl.style.color = d.cacheValColor;
   }
 
-  motion('speed', pillSpeed, text => { speedValue.textContent = text.trim(); });
+  // The child value must clear immediately rather than animate old execution text out.
+  if (!childAnchor) motion('speed', pillSpeed, text => { speedValue.textContent = text.trim(); });
   motion('error', root.querySelector('[data-el="grpError"]'));
 
   // Update Quota Popover HTML

@@ -154,7 +154,6 @@ export function readPickerState(trigger) {
 
 export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooterLeft, settingsLabels = labels) {
   const enabled = typeof prefsOrEnabled === 'boolean' ? prefsOrEnabled : prefsOrEnabled?.modelEffortPicker === true;
-  const keepNative = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.keepNativeModelEntry !== false : true;
   const hideTags = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.hideModelTags === true : false;
   const hideDefaultEffort = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.hideDefaultEffort === true : false;
   const effortCaption = prefsOrEnabled?.showEffortBar === true ? (labels?.effortLevel || 'Effort level') : '';
@@ -178,7 +177,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     (document.documentElement.lang.startsWith('zh') ? '尚未确认切换，请查看原生菜单。' : 'Selection unconfirmed. Check the native menu.');
 
   if (root._modelPicker) {
-    root._modelPicker.setConfig(keepNative, hiddenList, hideTags, hideDefaultEffort, effortCaption, effortOptions);
+    root._modelPicker.setConfig(hiddenList, hideTags, hideDefaultEffort, effortCaption, effortOptions);
     root._modelPicker.refresh(state, resolveCaption(labels), resolveUnconfirmed(labels));
     return;
   }
@@ -237,7 +236,6 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   let queuedEffort = null;
   let currentCaption = resolveCaption(labels);
   let currentUnconfirmed = resolveUnconfirmed(labels);
-  let currentKeepNative = keepNative;
   let currentHidden = [...hiddenList];
   let currentHideTags = hideTags;
   let currentHideDefaultEffort = hideDefaultEffort;
@@ -331,13 +329,12 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
       root.style.marginLeft = '6px';
       return;
     }
-    const mode = currentKeepNative ? 'bubble' : 'hidden';
-    if (trigger.getAttribute('data-deck-model-bubble') !== mode) {
-      trigger.setAttribute('data-deck-model-bubble', mode);
+    if (trigger.getAttribute('data-deck-model-bubble') !== 'hidden') {
+      trigger.setAttribute('data-deck-model-bubble', 'hidden');
     }
     // A replaced native button leaves its 0-width wrapper at the exact spot; drop the
     // strip's own left margin so the capsule starts where the native one did.
-    root.style.marginLeft = mode === 'hidden' ? '0px' : '6px';
+    root.style.marginLeft = '0px';
   };
   const close = () => {
     hideTip();
@@ -364,8 +361,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
 
   const picker = {
     trigger, id: state.conversationId,
-    setConfig(nextKeep, nextHidden, nextHideTags = false, nextHideDefaultEffort = false, nextEffortCaption = '', effortSettings = null) {
-      currentKeepNative = nextKeep;
+    setConfig(nextHidden, nextHideTags = false, nextHideDefaultEffort = false, nextEffortCaption = '', effortSettings = null) {
       currentHidden = Array.isArray(nextHidden) ? [...nextHidden] : [];
       currentHideTags = nextHideTags === true;
       currentHideDefaultEffort = nextHideDefaultEffort === true;

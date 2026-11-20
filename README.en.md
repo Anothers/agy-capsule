@@ -50,15 +50,12 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 
 ## Enhanced model capsule
 
-**Off by default.** When enabled, adds a native-styled model and effort selector to the composer footer (for both existing and new conversations): hover any multi-tier model to pick an effort level in one step from the side submenu, or click a model row directly to switch while inheriting your current effort (downgrading `XHigh`/`Extra`/`Max` to `High` if unsupported). Falls back to the native trigger automatically if the host interface does not match or the footer collapses on very narrow widths.
+**Off by default.** When enabled, seamlessly replaces the native composer footer model button in place with a native-styled model and effort selector (for both existing and new conversations): hover any multi-tier model to pick an effort level in one step from the side submenu, or click a model row directly to switch while inheriting your current effort (downgrading `XHigh`/`Extra`/`Max` to `High` if unsupported). Falls back to the native trigger automatically if the host interface does not match or the footer collapses on very narrow widths.
 
-- **Keep native button (on by default)**: Shrinks the native trigger into a `⋯` bubble next to the capsule so the native menu stays one click away; turn off to replace the native button in place.
 - **Hide model tags**: Hides tag badges such as `New` and `Notice` inside the dropdown.
 - **Hide default effort**: Hides effort previews in the model dropdown list (the footer button and hover effort submenu still show tiers, and direct clicks still inherit your current effort).
 - **Customize models**: Expands the list of models discovered from the host so you can toggle individual models on or off (at least one model always remains visible).
 - **Effort bar (off by default)**: Keeps the menu open when you switch models and replaces hover submenus with a slider. Click, use the arrow keys, or drag across a tier to switch immediately. Right-click the slider to change animation, tick marks, or the Codex / Claude style. Turn it off to restore hover submenus.
-
-Subagent conversations show the model used in their last request (read-only), context usage, and request alerts. Each capsule stays hidden when its own data is unavailable; it never substitutes data from the parent conversation.
 
 ## Usage history
 
@@ -91,6 +88,8 @@ An optional block at the bottom of the sidebar statistics (controlled from a ded
 
 Open **… → Extensions → agy-capsule** from the conversation header, then switch between the Statistics and Settings tabs at the top.
 
+The compact bar at the top of the **Settings** tab shows the installed version, an **Update alerts** toggle pill (on by default; click to disable background GitHub checks), and a **Check updates** button (switches in place to **Up to date** when current). When a newer GitHub release is available, a banner appears at the top of the sidebar where you can click **One-click update** to download, verify, replace runtime files (preserving your settings), and auto-reload without restarting Antigravity, or open the GitHub Release / dismiss.
+
 Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<code>%USERPROFILE%\.gemini\config\agy-capsule\settings.json</code> on Windows). Updates and uninstalls keep them; options missing from older files fall back to defaults.
 
 ## Installation
@@ -122,7 +121,7 @@ From the repository folder, run `sh install.sh` to install, `sh update.sh` to up
 ### FAQ
 
 > **The capsule disappeared after an Antigravity update — do I need to update agy-capsule?**
-> **No.** Antigravity's auto-update restarts itself without going through your shortcut (or your macOS launcher), so the debugging port isn't open for that launch. Just **quit Antigravity completely and reopen it from your shortcut** to restore the capsule. Once the capsule has worked on your machine before, agy-capsule recognizes this automatically: the sidebar banner clarifies no plugin update is needed (on Windows it also checks whether the installer wiped your shortcut switch and offers a one-click restore button), and an optional one-shot desktop notification alerts you once per launch (on by default in Settings).
+> **No.** On Windows, Antigravity may restart after an automatic update through its existing Start menu shortcut with `--remote-debugging-port=0`. Only if the restart omits the debugging flag will the capsule disappear because the debug port is closed. Sidebar stats are unaffected. Just **quit Antigravity completely and reopen it from the shortcut with the flag (or your macOS launcher)** to restore the capsule. Once the capsule has worked on your machine before, agy-capsule recognizes this automatically: the sidebar banner clarifies no plugin update is needed (on Windows it also checks whether the installer wiped your shortcut switch and offers a one-click restore button), and an optional one-shot desktop notification alerts you once per launch (on by default in Settings).
 
 ## Metric definitions
 
@@ -159,13 +158,17 @@ node --test "test/*.test.mjs"
 
 Browser regression tests are optional. With Playwright and Chromium installed, run `node test/browser-regressions.mjs` separately.
 
+## Other environments
+
+- **Subagent conversations**: Subagent conversations include all footer capsule features except quota (with a read-only model badge, and turn metrics counted per latest execution). Each capsule stays hidden when its own data is unavailable; it never substitutes data from the parent conversation.
+- **Cloud projects**: Cloud project conversations already show the footer capsules (context, speed, latest request, etc.), though the Antigravity host does not yet expose the plugin sidebar in cloud windows. Settings are shared with local windows and can be adjusted from any local project's sidebar.
+- **Antigravity CLI (`agy`)**: If you also use `agy` in the terminal, check out the companion project **[agy-capsule-cli](https://github.com/Lumidarin/agy-capsule-cli)** — a customizable statusline for Antigravity CLI with per-item toggles, custom colors, and an [online configurator](https://lumidarin.github.io/agy-capsule-cli/).
+
 ## Next stops
 
 Directions we may explore later, with no committed timeline:
 
-- **Sub-agent turn metrics**: Count each sub-agent execution as a turn to show turn duration, request count, and token totals.
-- **More effort bar styles**: The first optional animated effort slider is now available under the enhanced model picker; more optional looks may follow while keeping the current style as the default.
-- **WSL, SSH, and cloud projects**: Show capsules in WSL and SSH remote windows. Cloud project conversations already show the footer capsules, but the host does not offer the plugin sidebar there yet.
+- **WSL and SSH remote windows**: Show capsules in WSL and SSH remote windows.
 
 ## Contributing
 

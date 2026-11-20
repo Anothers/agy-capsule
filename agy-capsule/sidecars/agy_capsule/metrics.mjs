@@ -17,30 +17,44 @@ export function summarizeGeneration(raw = null) {
   };
 }
 
-// Footer speed is the latest COMPLETED request after the latest user input.
-// Verified local enums: USER_INPUT=14, PLANNER_RESPONSE=15, DONE=3.
-export function summarizeTurnSpeed(requests, steps, userStepIndex) {
-  if (!Number.isInteger(userStepIndex)) return null;
+// Footer speed is the latest COMPLETED measured request in scope.
+// Verified local enums: PLANNER_RESPONSE=15, DONE=3.
+function latestMeasuredSpeed(requests, steps, userStepIndex = null) {
+  const childExecution = userStepIndex === null;
   const stepMap = new Map(steps.map(step => [step.idx, step]));
   let generation = null;
   let completedAtMs = 0;
   for (const request of requests) {
-    if (request.lastStepIndex < userStepIndex || request.requestError?.kind !== 'none') continue;
-    const response = request.stepIndices?.map(idx => stepMap.get(idx)).find(step => step?.step_type === 15 && step.idx > userStepIndex && step.status === 3);
+    if ((!childExecution && request.lastStepIndex < userStepIndex) || request.requestError?.kind !== 'none') continue;
+    const response = request.stepIndices?.map(idx => stepMap.get(idx)).find(step =>
+      step?.step_type === 15 && (childExecution || step.idx > userStepIndex) && step.status === 3);
     if (!response) continue;
     const candidate = summarizeGeneration(request.generation);
     if (candidate.tps === null) continue;
     generation = candidate;
-    completedAtMs = response.completedAtMs || 0;
+    completedAtMs = (childExecution ? response.recordedCompletedAtMs || response.terminalAtMs : response.completedAtMs) || 0;
   }
+  return { generation, completedAtMs };
+}
+
+const ACTIVE_STEP_STATUSES = new Set([1, 2, 8, 9, 11]);
+
+export function summarizeTurnSpeed(requests, steps, userStepIndex) {
+  if (!Number.isInteger(userStepIndex)) return null;
   return {
-    userStepIndex, generation, completedAtMs,
-    hasActiveStep: steps.some(step => step.idx > userStepIndex && step.step_type !== 14 && [1, 2, 8, 9, 11].includes(step.status)),
+    userStepIndex, ...latestMeasuredSpeed(requests, steps, userStepIndex),
+    hasActiveStep: steps.some(step => step.idx > userStepIndex && step.step_type !== 14 && ACTIVE_STEP_STATUSES.has(step.status)),
+  };
+}
+
+export function summarizeSubagentTurnSpeed(requests, steps, execution) {
+  return {
+    executionId: execution.executionId, ...latestMeasuredSpeed(requests, steps),
+    hasActiveStep: execution.state === 'running' || execution.state === 'queued',
   };
 }
 
 // Reported TTFTs and local step-based estimates have different timing boundaries.
-const ACTIVE_STEP_STATUSES = new Set([1, 2, 8, 9, 11]);
 const validEpoch = value => Number.isFinite(value) && value > 0 ? value : null;
 
 export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [], childExecution = false) {
