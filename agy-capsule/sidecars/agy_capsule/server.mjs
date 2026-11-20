@@ -1428,7 +1428,8 @@ const UI_HTML = `<!DOCTYPE html>
     .cdp-fix-status:empty { display: none; }
     .cdp-notice summary { cursor: pointer; color: var(--foreground, #ebebeb); }
     .cdp-notice ol { margin: 5px 0 0; padding-left: 18px; display: grid; gap: 4px; }
-    .cdp-notice code { user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--foreground, #ebebeb) 8%, transparent); color: var(--foreground, #ebebeb); word-break: break-all; }
+    .cdp-notice code, .metric-help code { user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--foreground, #ebebeb) 8%, transparent); color: var(--foreground, #ebebeb); box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+    .cdp-notice code { word-break: break-all; }
     .setting-model-card { container-type: inline-size; container-name: model-card; }
     .setting-model-grid { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; align-items: center; column-gap: 14px; row-gap: 6px; }
     .setting-model-grid .setting-pair-item > label { font-size: 13px; color: var(--foreground, #ebebeb); min-width: 0; }
@@ -1669,7 +1670,7 @@ const UI_HTML = `<!DOCTYPE html>
           <div class="pv-effort-bar">${EFFORT_TRACK_MARKUP}</div>
         </div>
       </div>
-      <div class="metric-help" id="help-effort-bar" role="tooltip"><span data-i18n="effortBarCredit"></span> antigravity-Codex-Claude-effort-slider</div>
+      <div class="metric-help" id="help-effort-bar" role="tooltip"><span data-i18n="effortBarCredit"></span><code>LLYSH-HANNARI/antigravity-Codex-Claude-effort-slider</code><span data-i18n="effortBarCreditSuffix"></span></div>
       <div class="pv-model-list" id="setting-model-list" data-toggle-setting="hiddenModels" role="group"></div>
     </div>
     ${renderCheckCard({ id: 'setting-highlight-active-model', key: 'highlightActiveModel', checked: false })}

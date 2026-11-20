@@ -1103,7 +1103,7 @@ await test('Opt-in effort bar animates and switches models in place; default pic
 
   await toggle.check();
   await sidebar.locator('.pv-effort-bar').waitFor({ state: 'visible' });
-  assert.match(await sidebar.locator('#help-effort-bar').textContent(), /antigravity-Codex-Claude-effort-slider/);
+  assert.match(await sidebar.locator('#help-effort-bar').textContent(), /LLYSH-HANNARI\/antigravity-Codex-Claude-effort-slider/);
   assert.equal(data.prefs.showEffortBar, true);
   await apply(page, data);
   assert.equal(await range.getAttribute('aria-valuetext'), 'Low');

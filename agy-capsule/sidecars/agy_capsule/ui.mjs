@@ -90,7 +90,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       ttftTip: "First-token wait to total duration of the latest request.",
       totalTimeTip: "Request duration (TTFT + stream); excludes tool execution.",
       appearanceSection: 'Appearance', featuresSection: 'Features', usageSection: 'Usage history',
-      showEffortBar: 'Effort bar', effortLevel: 'Effort level', effortBarCredit: 'Style inspired by',
+      showEffortBar: 'Effort bar', effortLevel: 'Effort level', effortBarCredit: 'Thanks to ', effortBarCreditSuffix: ' for licensing the style',
       effortBarOptions: { title: 'Effort bar', motion: ['Animation', 'Fast', 'Simple', 'Full'], ticks: ['Reached tier marks', 'Bright', 'Dim', 'Hidden'], theme: ['Style', 'Follow model', 'Codex', 'Claude'] },
       languageScopeNote: "These only change agy-capsule's own panels. They don't translate Antigravity itself.",
       speedPairTip: 'Capsule speed: last completed request in the current turn (— until ready). Effects: breathing dot while running; holds speed color 15s after stopping (≥25 green, 10–25 yellow, <10 red).',
@@ -193,7 +193,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       ttftTip: "首字等待耗时 – 单次请求总耗时（已包含首字等待）。",
       totalTimeTip: "请求总耗时（首字等待 + 流式输出，不含工具执行）。",
       appearanceSection: '外观', featuresSection: '功能', usageSection: '用量统计',
-      showEffortBar: '思考强度滑条', effortLevel: '思考强度', effortBarCredit: '样式参考：',
+      showEffortBar: '思考强度滑条', effortLevel: '思考强度', effortBarCredit: '感谢 ', effortBarCreditSuffix: ' 授权的样式',
       effortBarOptions: { title: '思考强度滑条', motion: ['动画效果', '快速动画', '简洁动画', '完整动画'], ticks: ['已到达档位的刻度点', '亮白显示', '全部同色', '隐藏'], theme: ['样式', '跟随模型', 'Codex', 'Claude'] },
       languageScopeNote: '只影响 agy-capsule 自己的界面，不会翻译 Antigravity 本身。',
       speedPairTip: '底栏速度：本轮最近一次已完成请求的速度（未完成显示 —）。动效：运行中圆点呼吸，结束后保色 15 秒再变灰（≥25 绿、10–25 黄、<10 红）。',
@@ -296,7 +296,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       ttftTip: "首字等待耗時 – 單次請求總耗時（已包含首字等待）。",
       totalTimeTip: "請求總耗時（首字等待 + 串流輸出，不含工具執行）。",
       appearanceSection: '外觀', featuresSection: '功能', usageSection: '用量統計',
-      showEffortBar: '思考強度滑條', effortLevel: '思考強度', effortBarCredit: '樣式參考：',
+      showEffortBar: '思考強度滑條', effortLevel: '思考強度', effortBarCredit: '感謝 ', effortBarCreditSuffix: ' 授權的樣式',
       effortBarOptions: { title: '思考強度滑條', motion: ['動畫效果', '快速動畫', '簡潔動畫', '完整動畫'], ticks: ['已到達檔位的刻度點', '亮白顯示', '全部同色', '隱藏'], theme: ['樣式', '跟隨模型', 'Codex', 'Claude'] },
       languageScopeNote: '只影響 agy-capsule 自己的介面，不會翻譯 Antigravity 本身。',
       speedPairTip: '底欄速度：本輪最近一次已完成請求的速度（未完成顯示 —）。動效：執行中圓點呼吸，結束後保色 15 秒再變灰（≥25 綠、10–25 黃、<10 紅）。',
@@ -708,7 +708,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return t;
   }
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return { version: 86, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
+  return { version: 87, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
 }
 
-export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 86) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
+export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 87) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
