@@ -16,7 +16,7 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
-const PANEL_VERSION = 125;
+const PANEL_VERSION = 126;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1449,6 +1449,7 @@ const UI_HTML = `<!DOCTYPE html>
     const presentation = globalThis.__agyCapsulePresentation;
     ${renderFieldEditor.toString()}
     let prefs = ${JSON.stringify(DEFAULT_SETTINGS)};
+    let prefsSig = JSON.stringify(prefs);
     let labels = presentation.apply(document.body, prefs);
     let settingsLabels = presentation.dictionaries[prefs.settingsLanguage];
     let savingSettings = false;
@@ -1456,6 +1457,8 @@ const UI_HTML = `<!DOCTYPE html>
     let lastData = null, refreshing = false, refreshFailures = 0;
     let sampleCode = '', sampleCount = 0, healthCode = '';
     const sidebarTabs = document.querySelector('.sidebar-tabs');
+    const panel = document.querySelector('.panel');
+    let statsSig, cacheSig, quotaSig;
     let sidebarView = 'stats';
     const sidebarScroll = { stats: 0, settings: 0 };
     function selectSidebarView(view, focus = false) {
@@ -1470,6 +1473,7 @@ const UI_HTML = `<!DOCTYPE html>
           tab.tabIndex = selected ? 0 : -1;
           document.getElementById('sidebar-' + name).hidden = !selected;
         }
+        if (view === 'stats' && lastData) renderData(lastData);
         renderHealthNotice();
         window.scrollTo({ top: sidebarScroll[view], behavior: 'instant' });
       }
@@ -1509,6 +1513,7 @@ const UI_HTML = `<!DOCTYPE html>
     let expandModelList = false;
     function applySettings(next, forceInputs = false) {
       prefs = { ...prefs, ...next };
+      prefsSig = JSON.stringify(prefs);
       labels = presentation.apply(document.body, prefs);
       settingsLabels = presentation.dictionaries[prefs.settingsLanguage] || presentation.dictionaries['zh-CN'];
       sidebarTabs.lang = prefs.settingsLanguage;
@@ -1582,7 +1587,10 @@ const UI_HTML = `<!DOCTYPE html>
         swatch.setAttribute('aria-label', name);
         swatch.removeAttribute('title');
       }
-      if (lastData) renderData(lastData);
+      if (lastData) {
+        if (sidebarView === 'stats') renderData(lastData);
+        renderHealthNotice();
+      }
     }
     applySettings(prefs);
     let panelLocked = false;
@@ -1811,14 +1819,17 @@ const UI_HTML = `<!DOCTYPE html>
         if (prefs[key] !== value) void saveSettings({ [key]: value });
       });
     }
-    function renderQuota(groups) {
+    function renderQuota(groups, now) {
       const root = document.getElementById('quota-root');
-      const quotaGroups = presentation.quotaView(groups, prefs, labels);
+      const quotaGroups = presentation.quotaView(groups, prefs, labels, now);
+      const useBar = presentation.appearance(prefs).quotaIndicator === 'bar';
+      const sig = JSON.stringify([prefs.language, useBar, quotaGroups]);
+      if (sig === quotaSig) return;
       if (quotaGroups.length === 0) {
         root.replaceChildren();
+        quotaSig = sig;
         return;
       }
-      const useBar = presentation.appearance(prefs).quotaIndicator === 'bar';
       let html = '';
       for (const g of quotaGroups) {
         html += '<div class="quota-group">';
@@ -1839,6 +1850,7 @@ const UI_HTML = `<!DOCTYPE html>
       }
       root.innerHTML = html;
       presentation.applyQuotaTooltips(root, labels);
+      quotaSig = sig;
     }
 
     async function refresh() {
@@ -1865,8 +1877,15 @@ const UI_HTML = `<!DOCTYPE html>
         sampleCode = code;
         // F3/F4 and S4 already have thresholds in the backend.
         healthCode = code === healthCode || sampleCount >= 2 || !['S3', 'F1', 'F2'].includes(code) ? code : '';
-        if (!savingSettings && requestedSettingsEpoch === settingsEpoch) applySettings(d.prefs);
-        else renderData(d);
+        const nextPrefs = { ...prefs, ...d.prefs };
+        if (!savingSettings && requestedSettingsEpoch === settingsEpoch && JSON.stringify(nextPrefs) !== prefsSig) {
+          applySettings(nextPrefs);
+        } else {
+          // The settings tab still needs the model catalog and health updates.
+          renderModelList();
+          if (sidebarView === 'stats') renderData(d);
+          renderHealthNotice();
+        }
       } catch {
         if (!panelLocked) {
           refreshFailures++;
@@ -1877,43 +1896,28 @@ const UI_HTML = `<!DOCTYPE html>
     }
 
     function renderData(d) {
-        presentation.renderContextTooltips(document.querySelector('.panel'), d, labels);
-        presentation.renderAlerts(document.body, d, prefs, labels);
-        presentation.renderGeneration(document.querySelector('.panel'), d.generation, labels, prefs);
-        presentation.renderTurnMetrics(document.querySelector('.panel'), d.turnMetrics, labels, prefs);
+      const now = Date.now();
+      // Time can change what is shown even when the response is identical.
+      const alert = presentation.alertView(d, prefs, labels, now);
+      const elapsed = prefs.showTurnMetrics && d.turnMetrics
+        ? presentation.turnMetricsText(d.turnMetrics, labels, now).elapsed : '';
+      const sig = JSON.stringify([prefsSig, d.contextTokens, d.maxContextTokens, d.cachedIn, d.uncachedIn,
+        d.turn0Tokens, d.totalOutputTokens, d.totalThinkingTokens, d.generation, d.turnMetrics,
+        alert.contextTone, alert.contextTip, elapsed]);
+      if (sig !== statsSig) {
+        presentation.renderContextTooltips(panel, d, labels);
+        presentation.renderAlerts(document.body, d, prefs, labels, now);
+        presentation.renderGeneration(panel, d.generation, labels, prefs);
+        presentation.renderTurnMetrics(panel, d.turnMetrics, labels, prefs, now);
         const ctx = presentation.contextBreakdown(d);
 
         document.getElementById('used-pct').textContent = ctx.usedPct;
         document.getElementById('used-fraction').textContent = ctx.usedFrac;
 
-        const dotCachedEl = document.getElementById('dot-cached');
         document.getElementById('seg-read').style.width = ctx.segReadW;
         document.getElementById('seg-out').style.width = ctx.segOutW;
         document.getElementById('seg-think').style.width = ctx.segThinkW;
         document.getElementById('seg-turn0').style.width = ctx.segTurn0W;
-
-        const cache = presentation.cacheView(d, prefs);
-        const valCacheHitEl = document.getElementById('val-cache-hit');
-        const valCacheHitKEl = document.getElementById('val-cache-hit-k');
-        const cacheMeterEl = document.getElementById('cache-meter');
-        const cacheMeterFillEl = document.getElementById('cache-meter-fill');
-        dotCachedEl.innerHTML = cache.iconSvg;
-        if (cacheMeterEl && cacheMeterFillEl) {
-          cacheMeterEl.hidden = cache.indicator !== 'bar';
-          if (!cacheMeterEl.hidden) {
-            cacheMeterFillEl.style.width = cache.progressPct;
-            cacheMeterFillEl.style.backgroundColor = cache.progressColor;
-          }
-        }
-        valCacheHitEl.style.color = cache.valColor;
-        valCacheHitEl.style.textDecoration = cache.valDeco;
-        valCacheHitEl.style.opacity = cache.valOp;
-        valCacheHitEl.textContent = cache.text;
-        if (valCacheHitKEl) {
-          valCacheHitKEl.style.color = cache.valColor || 'var(--muted-foreground, #8e8e93)';
-          valCacheHitKEl.textContent = cache.countdown;
-        }
-        document.getElementById('row-cached').title = presentation.cacheTooltip(d, labels, Date.now(), prefs);
 
         document.getElementById('val-turn0-k').textContent = ctx.turn0K;
         document.getElementById('val-read-k').textContent = ctx.readK;
@@ -1923,10 +1927,42 @@ const UI_HTML = `<!DOCTYPE html>
         document.getElementById('val-read-pct').textContent = ctx.readPct;
         document.getElementById('val-think-pct').textContent = ctx.thinkPct;
         document.getElementById('val-out-pct').textContent = ctx.outPct;
+        statsSig = sig;
+      }
+      renderCache(d, now);
+      renderQuota(d.quotaGroups, now);
+    }
 
-        renderModelList();
-        renderQuota(d.quotaGroups);
-        renderHealthNotice();
+    function renderCache(d, now) {
+      const cache = presentation.cacheView(d, prefs, now);
+      const title = presentation.cacheTooltip(d, labels, now, prefs);
+      const sig = JSON.stringify([cache.indicator, cache.iconSvg, cache.valColor, cache.valDeco,
+        cache.valOp, cache.text, cache.countdown, title,
+        cache.indicator === 'bar' ? [cache.progressPct, cache.progressColor] : null]);
+      if (sig === cacheSig) return;
+      const dotCachedEl = document.getElementById('dot-cached');
+      const valCacheHitEl = document.getElementById('val-cache-hit');
+      const valCacheHitKEl = document.getElementById('val-cache-hit-k');
+      const cacheMeterEl = document.getElementById('cache-meter');
+      const cacheMeterFillEl = document.getElementById('cache-meter-fill');
+      dotCachedEl.innerHTML = cache.iconSvg;
+      if (cacheMeterEl && cacheMeterFillEl) {
+        cacheMeterEl.hidden = cache.indicator !== 'bar';
+        if (!cacheMeterEl.hidden) {
+          cacheMeterFillEl.style.width = cache.progressPct;
+          cacheMeterFillEl.style.backgroundColor = cache.progressColor;
+        }
+      }
+      valCacheHitEl.style.color = cache.valColor;
+      valCacheHitEl.style.textDecoration = cache.valDeco;
+      valCacheHitEl.style.opacity = cache.valOp;
+      valCacheHitEl.textContent = cache.text;
+      if (valCacheHitKEl) {
+        valCacheHitKEl.style.color = cache.valColor || 'var(--muted-foreground, #8e8e93)';
+        valCacheHitKEl.textContent = cache.countdown;
+      }
+      document.getElementById('row-cached').title = title;
+      cacheSig = sig;
     }
 
     // Shown on both tabs; text follows the open tab's language.
@@ -1962,7 +1998,8 @@ const UI_HTML = `<!DOCTYPE html>
     function renderHealthNotice() {
       const notice = document.getElementById('cdp-notice');
       const stale = refreshFailures >= 5;
-      document.getElementById('sidebar-stats').dataset.stale = String(stale);
+      const stats = document.getElementById('sidebar-stats');
+      if (stats.dataset.stale !== String(stale)) stats.dataset.stale = String(stale);
       const code = stale ? 'S2' : healthCode;
       notice.hidden = !code || panelLocked;
       if (notice.hidden) return;
