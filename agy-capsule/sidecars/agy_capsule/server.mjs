@@ -16,7 +16,7 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
-const PANEL_VERSION = 126;
+const PANEL_VERSION = 127;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -313,9 +313,12 @@ async function makeEmptyContextResult(health = null) {
 async function inspectConversation(convId, exact = false, subagentOnly = false) {
   if (exact && !subagentOnly) lastDeckConvId = convId || '';
   if (subagentOnly && !convId) return null;
-  const dbPath = subagentOnly
-    ? resolveConversationDb(convId, false)
-    : resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
+  return readSelectedConversation(subagentOnly ? convId : lastDeckConvId ?? convId,
+    !subagentOnly && lastDeckConvId === null, subagentOnly);
+}
+
+async function readSelectedConversation(convId, allowLatest, subagentOnly = false) {
+  const dbPath = resolveConversationDb(convId, allowLatest);
   if (subagentOnly && !dbPath) return null;
   if (!dbPath) return await makeEmptyContextResult(conversationDirs.some(dir => statSync(dir, { throwIfNoEntry: false })?.isDirectory()) ? null : { code: 'S3' });
 
@@ -1155,6 +1158,7 @@ const UI_HTML = `<!DOCTYPE html>
     .cdp-notice { max-width: 1120px; margin: 0 auto 10px; padding: 8px 10px; border-radius: 7px; border: 1px solid color-mix(in srgb, #e0a030 45%, transparent); background: color-mix(in srgb, #e0a030 8%, var(--background, #141414)); font-size: 12px; color: var(--muted-foreground, #8e8e93); }
     #health-code { text-align: end; font-size: 12px; color: var(--muted-foreground, #8e8e93); }
     #sidebar-stats[data-stale="true"] .stats-layout { opacity: .75; }
+    #sidebar-stats[data-context-pending] .stats-layout { visibility: hidden; }
     .cdp-notice[hidden] { display: none; }
     .cdp-notice-title { font-weight: 600; color: var(--foreground, #ebebeb); margin-bottom: 3px; }
     .cdp-notice p { margin: 0 0 4px; }
@@ -1490,12 +1494,31 @@ const UI_HTML = `<!DOCTYPE html>
     let savingSettings = false;
     let settingsEpoch = 0;
     let lastData = null, refreshing = false, refreshFailures = 0;
+    let conversationId = null, conversationEpoch = 0;
     let sampleCode = '', sampleCount = 0, healthCode = '';
     const sidebarTabs = document.querySelector('.sidebar-tabs');
     const panel = document.querySelector('.panel');
     let statsSig, cacheSig, quotaSig;
     let sidebarView = 'stats';
     const sidebarScroll = { stats: 0, settings: 0 };
+    function syncConversation() {
+      const id = window.sidecar?.conversationId ?? new URLSearchParams(location.search).get('conversationId') ?? '';
+      if (id !== conversationId) {
+        const switched = conversationId !== null;
+        conversationId = id;
+        conversationEpoch++;
+        lastData = null;
+        refreshFailures = sampleCount = 0;
+        healthCode = sampleCode = '';
+        if (sidebarView === 'stats') panel.setAttribute('data-context-pending', '');
+        if (switched) renderHealthNotice();
+      }
+      return id;
+    }
+    function replayStats() {
+      panel.toggleAttribute('data-context-pending', !lastData);
+      if (lastData) renderData(lastData);
+    }
     function selectSidebarView(view, focus = false) {
       if (view !== sidebarView) {
         sidebarScroll[sidebarView] = window.scrollY;
@@ -1508,7 +1531,10 @@ const UI_HTML = `<!DOCTYPE html>
           tab.tabIndex = selected ? 0 : -1;
           document.getElementById('sidebar-' + name).hidden = !selected;
         }
-        if (view === 'stats' && lastData) renderData(lastData);
+        if (view === 'stats') {
+          syncConversation();
+          replayStats();
+        }
         renderHealthNotice();
         window.scrollTo({ top: sidebarScroll[view], behavior: 'instant' });
       }
@@ -1622,19 +1648,19 @@ const UI_HTML = `<!DOCTYPE html>
         swatch.setAttribute('aria-label', name);
         swatch.removeAttribute('title');
       }
-      if (lastData) {
-        if (sidebarView === 'stats') renderData(lastData);
-        renderHealthNotice();
-      }
+      syncConversation();
+      if (sidebarView === 'stats') replayStats();
+      if (lastData) renderHealthNotice();
     }
     applySettings(prefs);
     let panelLocked = false;
-    async function postApi(path, data = {}, signal) {
+    async function postApi(path, data = {}, signal, isCurrent) {
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token') || window.sidecar?.token || '';
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['X-Sidecar-Token'] = token;
       const res = await (window.sidecar?.fetch || fetch)(path, { method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(data) });
+      if (isCurrent && !isCurrent()) return null;
       if (res.status === 401 || res.status === 403) {
         panelLocked = true;
         document.querySelector('.sidebar-content').style.display = 'none';
@@ -1889,16 +1915,22 @@ const UI_HTML = `<!DOCTYPE html>
     }
 
     async function refresh() {
-      if (panelLocked || refreshing) return;
+      if (panelLocked) return;
+      const convId = syncConversation();
+      if (refreshing) return;
       refreshing = true;
       const requestedSettingsEpoch = settingsEpoch;
+      const requestedConversationEpoch = conversationEpoch;
+      const isCurrent = () => {
+        syncConversation();
+        return requestedConversationEpoch === conversationEpoch;
+      };
       try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const convId = window.sidecar?.conversationId || urlParams.get('conversationId') || '';
-        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000));
+        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000), isCurrent);
+        if (!res) return;
         const d = await res.json();
+        if (!isCurrent() || panelLocked) return;
         if (!d || d.error) throw new Error('Context unavailable');
-        if (panelLocked) return;
         if (d.uiVersion && d.uiVersion !== ${PANEL_VERSION}) {
           window.location.reload();
           return;
@@ -1918,11 +1950,11 @@ const UI_HTML = `<!DOCTYPE html>
         } else {
           // The settings tab still needs the model catalog and health updates.
           renderModelList();
-          if (sidebarView === 'stats') renderData(d);
+          if (sidebarView === 'stats') replayStats();
           renderHealthNotice();
         }
       } catch {
-        if (!panelLocked) {
+        if (!panelLocked && isCurrent()) {
           refreshFailures++;
           sampleCount = 0;
           renderHealthNotice();
@@ -2143,9 +2175,11 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
     body: JSON.stringify({ uiVersion: PANEL_VERSION }) }), 'GET');
   app.api('/api/context', async (data) => {
     const deckCdp = deckInjector?.status?.() ?? 'unknown';
-    const conversationId = data?.conversationId || app.config.conversationId;
+    // Full View changes the sidecar's conversation; opening a child tab
+    // beside its parent does not. Neither should depend on the last CDP footer.
+    const conversationId = data?.conversationId ?? app.config?.conversationId ?? '';
     return {
-      ...await inspectConversation(conversationId),
+      ...await readSelectedConversation(conversationId, false),
       deckCdp,
       deckCdpInfo: cdpNotice.info(deckCdp),
       availableModels: deckInjector?.models?.(conversationId) ?? [],

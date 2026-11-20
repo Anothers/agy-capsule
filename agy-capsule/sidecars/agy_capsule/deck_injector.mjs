@@ -18,18 +18,30 @@ const PORT_FILE =
       ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Antigravity', 'DevToolsActivePort')
       : join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Antigravity', 'DevToolsActivePort');
 
-// A renderer can retain several composers while only one is on screen.
+// Side panels reuse the native footer. Select the owning view, never the
+// widest composer; geometry only tells us whether a candidate is on screen.
 function findFooterLeft() {
-  let best = null, bestWidth = 0;
+  let main = null, newComposer = null;
+  const nonMain = '[data-side-panel-composer], [data-testid="side-question-tab-content"], [data-testid="subagent-tab-composer"], [data-testid="voice-dock-composer"]';
   for (const el of document.querySelectorAll('.agy-composer-footer > div:first-child')) {
-    if (el.closest('[data-testid="subagent-tab-composer"]')) continue;
+    if (el.closest(nonMain)) continue;
+    const view = el.closest('[data-testid="conversation-view"]');
+    // New-conversation surfaces have the host's input and media scope, but
+    // no conversation-view until the conversation starts.
+    if (!view && !el.closest('[data-testid="agent-input-box"]')?.closest('[data-media-drop-scope]')) continue;
     if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
     const r = el.getBoundingClientRect();
-    if (Math.min(r.bottom, window.innerHeight) <= Math.max(r.top, 0)) continue;
-    const width = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
-    if (width > bestWidth) { best = el; bestWidth = width; }
+    if (Math.min(r.bottom, innerHeight) <= Math.max(r.top, 0) ||
+        Math.min(r.right, innerWidth) <= Math.max(r.left, 0)) continue;
+    if (view) {
+      const pane = view.closest('[data-pane-id]');
+      if (pane && !pane.hasAttribute('data-pane-unfocused')) return el;
+      main ??= el;
+    } else {
+      newComposer ??= el;
+    }
   }
-  return best;
+  return main ?? newComposer;
 }
 
 function conversationIdOf(el) {
@@ -73,6 +85,7 @@ function pageMount(d, childAnchor = null) {
     window.__agyCapsuleCleanup?.();
     return 'no-footer';
   }
+  const childSidebar = childAnchor?.matches('[data-testid="subagent-tab-composer"]');
   const presentation = globalThis.__agyCapsulePresentation;
 
   const clearFooterLayout = (node) => {
@@ -409,6 +422,8 @@ function pageMount(d, childAnchor = null) {
         #deck-metrics-strip .dk-grp[data-pinned="true"] .dk-pop { display: block; pointer-events: auto; }
         #deck-metrics-strip[data-pinned] .dk-grp:not([data-pinned="true"]):hover .dk-pop { display: none; }
         #deck-metrics-strip .dk-grp[data-dismissed="true"] .dk-pop { display: none; }
+        #deck-metrics-strip .dk-grp .dk-pop[popover] { position: fixed; inset: auto; margin: 0; }
+        #deck-metrics-strip .dk-grp .dk-pop[popover]:not(:popover-open) { display: none; }
         /* Context Popover (matches plugin UI) */
         #deck-metrics-strip .dk-ctx-pop {
           width: 228px;
@@ -851,18 +866,29 @@ function pageMount(d, childAnchor = null) {
     if (childAnchor) host._dispose = root._dispose;
     else window.__agyCapsuleCleanup = root._dispose;
 
-    const closePinned = (dismiss = false) => {
+    const groups = [...root.querySelectorAll('.dk-grp')];
+    const overlays = childSidebar ? groups.map(grp => grp.querySelector('.dk-pop')) : [];
+    for (const pop of overlays) pop.popover = 'manual';
+    const closePinned = root._closePinned = (dismiss = false) => {
       const pinned = root._pinnedGroup;
       if (pinned) {
         pinned.removeAttribute('data-pinned');
         if (dismiss) pinned.dataset.dismissed = 'true';
         pinned.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
+        const pop = pinned.querySelector('.dk-pop');
+        if (pop.matches(':popover-open')) pop.hidePopover();
       }
       root._pinnedGroup = null;
       root.removeAttribute('data-pinned');
     };
     root._layoutPopovers = (grp = root._pinnedGroup || root.querySelector('.dk-grp:hover')) => {
-      const pop = grp?.querySelector('.dk-pop');
+      const pop = grp && !grp.hidden && !grp.dataset.dismissed && !root.classList.contains('dk-hide-all')
+        ? grp.querySelector('.dk-pop') : null;
+      // A sidebar strip sits in its own stacking context below the native
+      // composer. Only its panel needs to escape into the browser's top layer.
+      for (const overlay of overlays) {
+        if (overlay !== pop && overlay.matches(':popover-open')) overlay.hidePopover();
+      }
       if (!pop && root.dataset.panelLayout !== 'matched') {
         root._fitPanelHeights?.();
         return;
@@ -881,6 +907,7 @@ function pageMount(d, childAnchor = null) {
       const limit = `${Math.max(0, maxRight - minLeft)}px`;
       if (root.style.getPropertyValue('--dk-pop-max-width') !== limit) root.style.setProperty('--dk-pop-max-width', limit);
       root._fitPanelHeights?.();
+      if (pop && childSidebar && !pop.matches(':popover-open')) pop.showPopover();
       const width = pop?.getBoundingClientRect().width;
       if (!width) return;
       const pill = grp.querySelector('.dk-pill').getBoundingClientRect();
@@ -888,9 +915,10 @@ function pageMount(d, childAnchor = null) {
       const stripLeft = (firstGrp || root).getBoundingClientRect().left;
       let left = Math.max(stripLeft, pill.right - width);
       left = Math.max(minLeft, Math.min(left, maxRight - width));
-      pop.style.left = (left - grp.getBoundingClientRect().left) + 'px';
+      pop.style.left = (childSidebar ? left : left - grp.getBoundingClientRect().left) + 'px';
+      if (childSidebar) pop.style.bottom = (innerHeight - pill.top + 8) + 'px';
     };
-    for (const grp of root.querySelectorAll('.dk-grp')) {
+    for (const grp of groups) {
       grp.addEventListener('mouseenter', () => {
         root._refreshCacheTooltip?.();
         grp.removeAttribute('data-dismissed');
@@ -902,7 +930,10 @@ function pageMount(d, childAnchor = null) {
         if (root._pinnedGroup === grp) return;
         grp.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
         const pop = grp.querySelector('.dk-pop');
-        if (pop) pop.style.left = '';
+        if (pop) {
+          if (pop.matches(':popover-open')) pop.hidePopover();
+          pop.style.left = '';
+        }
       });
       grp.querySelector('.dk-pill').addEventListener('click', (event) => {
         event.stopPropagation();
@@ -911,6 +942,7 @@ function pageMount(d, childAnchor = null) {
         closePinned();
         if (wasPinned) {
           grp.dataset.dismissed = 'true';
+          root._layoutPopovers(grp);
         } else {
           grp.removeAttribute('data-dismissed');
           grp.dataset.pinned = 'true';
@@ -925,10 +957,11 @@ function pageMount(d, childAnchor = null) {
     root._onEscape = (event) => {
       if (event.key !== 'Escape') return;
       closePinned(true);
-      for (const grp of root.querySelectorAll('.dk-grp')) {
+      for (const grp of groups) {
         grp.dataset.dismissed = 'true';
         grp.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
       }
+      root._layoutPopovers();
     };
     document.addEventListener('click', root._onOutsideClick);
     document.addEventListener('keydown', root._onEscape);
@@ -959,12 +992,7 @@ function pageMount(d, childAnchor = null) {
   root.querySelector('[data-el="grpQuota"]').hidden = !!childAnchor || d.cloudPaygo;
   if (childAnchor) host.hidden = !alerts.visible && !d.hasContext && root.querySelector('[data-el="childModel"]').hidden;
   if (childAnchor) host.style.display = host.hidden ? 'none' : 'block';
-  if (root._pinnedGroup?.hidden) {
-    root._pinnedGroup.removeAttribute('data-pinned');
-    root._pinnedGroup.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
-    root._pinnedGroup = null;
-    root.removeAttribute('data-pinned');
-  }
+  if (root._pinnedGroup?.hidden) root._closePinned();
   root._refreshCacheTooltip = () => {
     root.querySelector('[data-el="rowCacheHit"]').title = presentation.cacheTooltip(d.cache, labels, Date.now(), d.prefs);
   };
@@ -1319,7 +1347,17 @@ function pageMount(d, childAnchor = null) {
     }
   };
   root._adjustLayout = () => {
-    if (!childAnchor) adjustLayout();
+    if (childAnchor) {
+      root.classList.remove('dk-hide-all');
+      const model = root.querySelector('[data-el="childModel"]');
+      // Allow a readable ellipsis, but don't show a sliver of the model or
+      // clip the non-shrinking pills when the host splits the sidebar again.
+      if (!host.hidden && (root.scrollWidth > root.clientWidth + 1 ||
+          (!model.hidden && model.clientWidth < Math.min(24, model.scrollWidth)))) {
+        root._closePinned();
+        root.classList.add('dk-hide-all');
+      }
+    } else adjustLayout();
     root._layoutPopovers();
   };
   root._scheduleLayout = () => {

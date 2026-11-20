@@ -42,7 +42,7 @@ test('child reads never move the main sidebar and alerts stay in the child execu
     if (original === undefined) delete process.env[envKey]; else process.env[envKey] = original;
     rmSync(profile, { recursive: true, force: true });
   });
-  const { inspectConversation, readConversationSnapshot } = await import('../agy-capsule/sidecars/agy_capsule/server.mjs?child-fixture');
+  const { inspectConversation, readConversationSnapshot, startPanel } = await import('../agy-capsule/sidecars/agy_capsule/server.mjs?child-fixture');
   const dir = join(profile, 'conversations');
   mkdirSync(dir);
   const open = id => {
@@ -74,6 +74,25 @@ test('child reads never move the main sidebar and alerts stay in the child execu
   assert.equal(await inspectConversation('main', true, true), null, 'a normal DB cannot supply child capsules');
   assert.equal(await inspectConversation('missing', true, true), null);
   assert.equal((await inspectConversation()).contextTokens, 77);
+
+  let postContext;
+  class SidecarApp {
+    config = { conversationId: 'main' };
+    page() {}
+    run() {}
+    api(path, handler, method) {
+      if (path === '/api/context' && method === 'POST') postContext = handler;
+    }
+  }
+  await startPanel(() => ({ SidecarApp }), { ANTIGRAVITY_SIDECAR_UI_TOKEN: 'fixture' });
+  assert.equal((await postContext({ conversationId: 'main' })).contextTokens, 77, 'a parallel tab keeps the sidecar on the parent');
+  const full = await postContext({ conversationId: 'child' });
+  assert.equal(full.contextTokens, 150, 'Full View supplies the child ID even without a composer');
+  assert.equal(full.turnMetrics, null);
+  assert.equal(full.uiVersion, 127);
+  assert.equal((await postContext({ conversationId: 'missing' })).contextTokens, 0, 'no parent fallback for a missing child DB');
+  assert.equal((await postContext({ conversationId: '' })).contextTokens, 0, 'an explicitly empty view must not display an old chat');
+  assert.equal((await inspectConversation()).contextTokens, 77, 'sidebar reads do not move the CDP composer pointer');
 
   const read = () => readConversationSnapshot(join(dir, 'child.db'));
   addStep(1, 15, 1, 'second', 2000);
