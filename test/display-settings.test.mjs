@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, renameSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createSettingsStore, DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
@@ -71,6 +71,29 @@ test('individual settings validate values, persist and propagate between sidecar
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('settings cache detects an atomic replacement with the same size and modification time', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-settings-replace-'));
+  try {
+    const file = join(dir, 'settings.json');
+    const replacement = join(dir, 'replacement.json');
+    const timestamp = 1_700_000_000;
+    writeFileSync(file, JSON.stringify({ cacheWarnMin: 2 }));
+    utimesSync(file, timestamp, timestamp);
+    const before = statSync(file, { bigint: true });
+    const store = createSettingsStore(file);
+    assert.equal(store.read().cacheWarnMin, 2);
+
+    writeFileSync(replacement, JSON.stringify({ cacheWarnMin: 3 }));
+    utimesSync(replacement, timestamp, timestamp);
+    renameSync(replacement, file);
+    const after = statSync(file, { bigint: true });
+    assert.equal(after.size, before.size);
+    assert.equal(after.mtimeNs, before.mtimeNs);
+    assert.notEqual(after.ino, before.ino);
+    assert.equal(store.read().cacheWarnMin, 3);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('removing presets keeps old appearance choices and persists only independent settings', () => {

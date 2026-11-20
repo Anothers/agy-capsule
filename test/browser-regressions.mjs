@@ -197,6 +197,82 @@ await test('Sidebar clears empty or missing quotas and renders a later fresh sna
   assert.match(await page.locator('#panel-auth-notice').textContent(), /S1/);
 });
 
+await test('Sidebar skips unchanged and hidden statistics but catches up on time and data changes', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 700 } });
+  const now = 1_700_000_000_000;
+  const data = snapshot();
+  data.prefs.showTurnMetrics = true;
+  data.lastStepEpochMs = now - 171_000;
+  data.turnMetrics = { state: 'running', startedAtMs: now - 10_000 };
+  data.quotaGroups[0].buckets[0].resetTime = new Date(now + 125_000).toISOString();
+  let polls = 0;
+  await page.addInitScript(now => {
+    window.testNow = now;
+    Date.now = () => window.testNow;
+    const interval = window.setInterval;
+    window.setInterval = (fn, ms, ...args) => {
+      if (fn.name !== 'refresh') return interval(fn, ms, ...args);
+      window.testRefresh = fn;
+    };
+  }, now);
+  await page.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') { polls++; return route.fulfill({ json: data }); }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  await page.waitForFunction(() => document.querySelector('#used-pct').textContent === '50%');
+  const text = selector => page.locator(selector).first().textContent();
+  const tick = () => page.evaluate(() => window.testRefresh());
+  await page.evaluate(() => {
+    window.quotaBefore = document.querySelector('.quota-bucket');
+  });
+  const tickAndCount = () => page.evaluate(async () => {
+    let records = 0;
+    const observer = new MutationObserver(changes => { records += changes.length; });
+    observer.observe(document.querySelector('#sidebar-stats'), { subtree: true, childList: true, attributes: true, characterData: true });
+    await window.testRefresh();
+    records += observer.takeRecords().length;
+    observer.disconnect();
+    return records;
+  });
+  assert.equal(await tickAndCount(), 0, 'an identical poll must not write statistics DOM');
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '10s');
+  assert.equal(await text('.quota-mid'), '2m');
+  await page.evaluate(now => { window.testNow = now + 1000; }, now);
+  await tick();
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '11s');
+  assert.equal(await page.evaluate(() => window.quotaBefore === document.querySelector('.quota-bucket')), true);
+  await page.evaluate(now => { window.testNow = now + 10_000; }, now);
+  await tick();
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '20s');
+  assert.equal(await text('.quota-mid'), '1m');
+  assert.equal(await text('#val-cache-hit-k'), '~1m');
+  data.requestError = { kind: 'context_overflow' };
+  await tick();
+  assert.equal(await page.locator('body').getAttribute('data-context-tone'), 'error');
+  const overview = page.locator('[data-context-tip="overview"]').first();
+  const overflowTip = await overview.getAttribute('title');
+  assert.equal(await tickAndCount(), 0);
+  assert.equal(await overview.getAttribute('title'), overflowTip, 'unchanged alerts do not append another warning');
+
+  await page.locator('#sidebar-tab-settings').click();
+  const before = polls;
+  data.contextTokens = 64_000;
+  data.availableModels = ['Gemini Fixture'];
+  data.deckCdp = 'no-anchor';
+  assert.equal(await tickAndCount(), 0, 'changed data must not write hidden statistics');
+  assert.equal(polls, before + 1, 'settings still receives fresh data for its own controls and health');
+  assert.equal(await text('#used-pct'), '50%');
+  assert.equal(await text('[data-model-toggle="Gemini Fixture"]'), 'Fixture');
+  assert.match(await text('#health-code'), /F3/);
+  await page.locator('#sidebar-tab-stats').click();
+  assert.equal(await text('#used-pct'), '25%');
+  assert.equal(polls, before + 1, 'returning to statistics paints the latest snapshot without waiting for a poll');
+});
+
 await test('Chinese health notice debounces failures, prioritizes sidebar data and recovers without losing statistics', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
