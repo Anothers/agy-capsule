@@ -62,6 +62,103 @@ await test('Footer probe and capsule follow the visible composer and release the
   assert.equal(await mountedIn(), 'hidden');
 });
 
+await test('Child capsules follow the transcript in side and main views without borrowing the parent', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
+  const main = '11111111-1111-1111-1111-111111111111';
+  const first = '22222222-2222-2222-2222-222222222222';
+  const second = '33333333-3333-3333-3333-333333333333';
+  await page.route('http://agy.test/**', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.goto('http://agy.test/c/' + main);
+  await page.setContent(`
+    <div style="display:flex;gap:10px">
+      <main data-testid="conversation-view" data-cascade-id="${main}" style="width:600px;min-height:150px">
+        <div class="agy-composer-footer"><div><button>Parent model</button></div></div>
+      </main>
+      <aside style="width:220px">
+        <div data-testid="subagent-tab-conversation" data-cascade-id="${first}" style="height:150px"></div>
+        <div data-testid="subagent-tab-composer"></div>
+      </aside>
+      <aside hidden>
+        <div data-testid="subagent-tab-conversation" data-cascade-id="${second}" style="height:150px"></div>
+        <div data-testid="subagent-tab-composer"></div>
+      </aside>
+    </div>
+  `);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const state = () => page.evaluate(owner => globalThis.__agyCapsuleDeck.readState(owner), owner);
+  const applyMain = (id, data) => page.evaluate(({ owner, id, data }) =>
+    globalThis.__agyCapsuleDeck.apply(data, location.pathname, owner, id), { owner, id, data });
+  const applyChild = (id, data) => page.evaluate(({ owner, id, data }) =>
+    globalThis.__agyCapsuleDeck.applySubagent(data, location.pathname, owner, id), { owner, id, data });
+  const parent = page.locator('#agy-capsule-host');
+  const child = page.locator('[data-agy-capsule-subagent]');
+  const nativeStyle = page.locator('#agy-capsule-native-layout');
+  const firstData = { ...snapshot(), subagent: { model: 'Child model (High)' }, contextTokens: 64000,
+    turnQueue: { waits: [60], turnTerminal: true } };
+  assert.deepEqual((await state()).subagentIds, [first], 'a retained hidden tab is ignored');
+  await apply(page, snapshot());
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+  await page.evaluate(() => history.replaceState({}, '', '/'));
+  assert.equal((await state()).conversationId, main);
+  assert.equal((await state()).hasFooter, true, 'an ordinary main composer survives without a /c/ route');
+  assert.equal(await applyMain(main, snapshot()), true);
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+  assert.equal(await child.count(), 0);
+  assert.equal(await applyChild(first, firstData), true);
+  assert.equal(await child.locator('[data-el="childModel"]').textContent(), 'Child model (High)');
+  assert.equal(await child.locator('[data-el="grpCtx"] [data-k="pillCtx"]').textContent(), '25%');
+  assert.equal(await child.locator('[data-el="grpQuota"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpError"]').getAttribute('data-alert-mode'), 'queue');
+  assert.ok((await child.locator('#deck-metrics-strip').boundingBox()).width <= 220);
+  await child.locator('[data-el="grpCtx"] .dk-pill').click();
+  assert.equal(await child.locator('.dk-ctx-pop').isVisible(), true);
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+
+  await page.locator('aside:not([hidden]) [data-testid="subagent-tab-conversation"]').evaluate((el, id) => {
+    el.dataset.cascadeId = id;
+  }, second);
+  assert.equal(await child.count(), 0, 'the same URL must not keep the previous child strip');
+  assert.deepEqual((await state()).subagentIds, [second]);
+  assert.equal(await nativeStyle.count(), 1, 'side cleanup preserves the main native layout');
+  assert.equal(await applyChild(first, firstData), false, 'reject a delayed snapshot for the previous child');
+  const incomplete = { ...firstData, subagent: { model: '' }, maxContextTokens: 0,
+    requestError: { kind: 'rate_limited' } };
+  await applyChild(second, incomplete);
+  assert.equal(await child.locator('[data-el="childModel"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpCtx"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpError"]').getAttribute('data-alert-mode'), 'error');
+
+  await page.evaluate(id => {
+    document.querySelector('aside:not([hidden])').remove();
+    document.querySelector('main').dataset.cascadeId = id;
+    document.querySelector('.agy-composer-footer').remove();
+  }, second);
+  assert.deepEqual((await state()).subagentIds, [second], 'read the displayed transcript ID, not the old URL');
+  assert.equal(await parent.count(), 0);
+  await applyChild(second, null);
+  assert.equal(await child.count(), 0, 'no verified child snapshot means no strip');
+  await page.evaluate(id => history.pushState({}, '', '/c/' + id), second);
+  assert.deepEqual((await state()).subagentIds, [second]);
+  await applyChild(second, firstData);
+  assert.equal(await page.locator('main > [data-agy-capsule-subagent]').count(), 1);
+  await page.evaluate(() => document.querySelector('main').insertAdjacentHTML('beforeend',
+    '<div><div class="agy-composer-footer"><div style="min-height:24px"></div></div></div>'));
+  assert.equal((await state()).hasFooter, true);
+  await apply(page, firstData);
+  assert.equal(await child.count(), 1);
+  assert.equal(await parent.count(), 0, 'a child in the main composer is still read-only');
+  await page.locator('main').evaluate((el, id) => { el.dataset.cascadeId = id; }, main);
+  assert.equal(await child.count(), 0, 'main transcript changes also clear the current child');
+  assert.equal(await applyMain(second, firstData), false, 'reject a delayed snapshot for the old main transcript');
+  assert.equal(await applyMain(main, snapshot()), true);
+  assert.equal(await parent.count(), 1, 'the visible normal transcript still wins over the stale URL');
+  await page.evaluate(() => globalThis.__agyCapsuleDeck.dispose());
+  assert.equal(await child.count(), 0);
+  assert.equal(await parent.count(), 0);
+});
+
 await test('Sidebar clears empty or missing quotas and renders a later fresh snapshot', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());

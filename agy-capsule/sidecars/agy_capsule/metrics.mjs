@@ -43,12 +43,12 @@ export function summarizeTurnSpeed(requests, steps, userStepIndex) {
 const ACTIVE_STEP_STATUSES = new Set([1, 2, 8, 9, 11]);
 const validEpoch = value => Number.isFinite(value) && value > 0 ? value : null;
 
-export function summarizeTurnQueue(requests, steps, userStepIndex, executors = []) {
+export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [], childExecution = false) {
   if (!Number.isInteger(userStepIndex)) return null;
   // An older request can create its response step after the next input.
   const priorPlannerLinks = new Set();
   const currentPlannerLinks = new Set();
-  for (const request of requests) {
+  for (const request of childExecution ? [] : requests) {
     const input = request.lastStepIndex;
     if (!Number.isInteger(input) || input < 0) continue;
     const links = input < userStepIndex ? priorPlannerLinks : currentPlannerLinks;
@@ -60,16 +60,16 @@ export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [
   const isPriorPlanner = step => step.step_type === 15 && isPriorLink(step.idx);
   const scope = steps.filter(step => step.idx >= userStepIndex && !isPriorPlanner(step));
   const user = scope.find(step => step.idx === userStepIndex && step.step_type === 14);
-  if (!user) return null;
+  if (!user && !childExecution) return null;
 
   const active = scope.some(step => step.step_type !== 14 && ACTIVE_STEP_STATUSES.has(step.status));
   const executor = executors.filter(item => item.lastStepIndex >= userStepIndex).at(-1);
   const finalStep = executor && scope.find(step => step.idx === executor.lastStepIndex);
   const laterExecution = executor && scope.some(step => step.idx > executor.lastStepIndex && ![14, 101, 17].includes(step.step_type));
   const executionMatches = finalStep && (!executor.executionId || !finalStep.executionId || executor.executionId === finalStep.executionId);
-  const turnTerminal = !active && (
-    Boolean(executor && executionMatches && !laterExecution && ![0, 7, 12].includes(executor.reason))
-    || ([6, 12].includes(user.status) && scope.every(step => step.step_type === 14))
+  const executorEnded = Boolean(executor && executionMatches && !laterExecution && ![0, 7, 12].includes(executor.reason));
+  const turnTerminal = childExecution ? executorEnded : !active && (
+    executorEnded || ([6, 12].includes(user?.status) && scope.every(step => step.step_type === 14))
   );
 
   const plannerIndices = new Set(scope.filter(step => step.step_type === 15).map(step => step.idx));
@@ -78,12 +78,15 @@ export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [
   for (const request of requests) {
     const input = request.lastStepIndex;
     const links = request.stepIndices || [];
-    if (Number.isInteger(input) && input >= 0) {
-      if (input < userStepIndex) continue;
-    } else if (!links.some(idx => plannerIndices.has(idx)) ||
-        links.some(idx => idx <= userStepIndex || isPriorLink(idx))) {
-      // A generated step can identify the wait when the request has no input index.
-      continue;
+    // Child requests have already been scoped by execution, not by input.
+    if (!childExecution) {
+      if (Number.isInteger(input) && input >= 0) {
+        if (input < userStepIndex) continue;
+      } else if (!links.some(idx => plannerIndices.has(idx)) ||
+          links.some(idx => idx <= userStepIndex || isPriorLink(idx))) {
+        // A generated step can identify the wait when the request has no input index.
+        continue;
+      }
     }
     const ttft = request.generation?.ttft;
     if (ttft !== null && ttft !== undefined && Number.isFinite(ttft) && ttft >= 0) {
@@ -113,7 +116,7 @@ export function summarizeTurnQueue(requests, steps, userStepIndex, executors = [
       if (waitingPendingPlanner) {
         waitingSinceMs = validEpoch(pendingPlanner.createdAtMs);
       }
-    } else if (!hasPriorActivePlanner) {
+    } else if (!childExecution && !hasPriorActivePlanner) {
       const relevant = scope.filter(step => !(step.step_type === 14 && step.status === 11) && ![101, 17].includes(step.step_type));
       const last = relevant.at(-1);
       if (last) {

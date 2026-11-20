@@ -57,6 +57,8 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 - **Hide default effort**: Hides effort previews in the model dropdown list (the footer button and hover effort submenu still show tiers, and direct clicks still inherit your current effort).
 - **Customize models**: Expands the list of models discovered from the host so you can toggle individual models on or off (at least one model always remains visible).
 
+Subagent conversations show the model used in their last request (read-only), context usage, and request alerts. Each capsule stays hidden when its own data is unavailable; it never substitutes data from the parent conversation.
+
 ## Language and appearance
 
 - **Settings language**: English, Simplified Chinese, Traditional Chinese. The language of the settings page.

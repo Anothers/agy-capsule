@@ -252,6 +252,7 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
     attempts,
     missingAttempts,
     pendingAttempt,
+    modelDisplayName: Buffer.isBuffer(m1.get(21)?.[0]) ? m1.get(21)[0].toString('utf8').trim() : '',
     generation: {
       requestIndex: idx, ttft, streaming,
       output: hasOutput ? usage.get(3)?.[0] || 0 : null,
@@ -309,13 +310,18 @@ async function makeEmptyContextResult(health = null) {
   };
 }
 
-async function inspectConversation(convId, exact = false) {
-  if (exact) lastDeckConvId = convId || '';
-  const dbPath = resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
+async function inspectConversation(convId, exact = false, subagentOnly = false) {
+  if (exact && !subagentOnly) lastDeckConvId = convId || '';
+  if (subagentOnly && !convId) return null;
+  const dbPath = subagentOnly
+    ? resolveConversationDb(convId, false)
+    : resolveConversationDb(lastDeckConvId ?? convId, lastDeckConvId === null);
+  if (subagentOnly && !dbPath) return null;
   if (!dbPath) return await makeEmptyContextResult(conversationDirs.some(dir => statSync(dir, { throwIfNoEntry: false })?.isDirectory()) ? null : { code: 'S3' });
 
   const prefs = settingsStore.read();
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
+  if (subagentOnly && !snapshot?.subagent) return null;
   const health = conversationCache.health(dbPath);
   if (!snapshot) return await makeEmptyContextResult(health);
   return {
@@ -323,7 +329,7 @@ async function inspectConversation(convId, exact = false) {
     uiVersion: PANEL_VERSION,
     ...snapshot,
     prefs,
-    ...await fetchQuota(),
+    ...(subagentOnly ? NO_QUOTA : await fetchQuota()),
   };
 }
 
@@ -338,15 +344,22 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   let turnSteps = [];
   let metricsUserStepIndex = null;
   let executors = [];
+  let subagent = false;
   try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trajectory_metadata_blob'").get()) {
+      const blob = db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id='main'").get()?.data;
+      const meta = parsePbMap(Buffer.from(blob || []));
+      // CortexTrajectoryMetadata.parent_conversation_id=5, subagent_spec=8.
+      subagent = !!(meta.get(5)?.[0]?.length && meta.get(8)?.[0]?.length);
+    }
     rawRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
     cpRows = db.prepare('SELECT idx FROM steps WHERE step_type = 23 ORDER BY idx DESC').all();
     // A queued user input is not a new running turn until AGY consumes it.
     userStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 AND status != 11 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
     if (includeTurnMetrics) metricsUserStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
     const firstTurnStep = userStepIndex ?? metricsUserStepIndex;
-    if (firstTurnStep !== null) {
-      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep).map(step => {
+    if (firstTurnStep !== null || subagent) {
+      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep ?? 0).map(step => {
         const fields = parsePbMap(Buffer.from(step.metadata || []));
         const stamp = fields.get(7)?.[0] || fields.get(8)?.[0];
         const time = stamp ? parsePbMap(stamp) : new Map();
@@ -466,16 +479,38 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const totalOutputTokens = Math.round(rawOut * genScale);
   const totalThinkingTokens = Math.round(rawThink * genScale);
 
+  let turnQueue;
+  if (subagent) {
+    // Parent messages and task notifications can start fresh executions without
+    // a USER_INPUT step. Never roll previous executions into this one's alerts.
+    const latestStep = turnSteps.findLast(step => ![17, 23].includes(step.step_type));
+    const executionId = latestStep?.executionId;
+    const steps = executionId ? turnSteps.filter(step => step.executionId === executionId) : [];
+    const executionByStep = new Map(turnSteps.map(step => [step.idx, step.executionId]));
+    const requests = executionId ? parsedRequests.filter(request => {
+      // The first request can still use the preceding execution's last step
+      // as input. Its persisted output steps are stronger attribution.
+      if (!request.stepIndices.length) return executionByStep.get(request.lastStepIndex) === executionId;
+      const linked = request.stepIndices.map(idx => executionByStep.get(idx)).filter(Boolean);
+      return linked.length > 0 && linked.every(id => id === executionId);
+    }) : [];
+    turnQueue = summarizeTurnQueue(requests, steps, steps[0]?.idx, executors.filter(item => item.executionId === executionId), true);
+    latestRequestError = requests.at(-1)?.requestError ?? classifyRequestError();
+  } else {
+    turnQueue = summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors);
+  }
+
   return {
+    ...(subagent && { subagent: { model: parsedRequests.at(-1)?.modelDisplayName || '' } }),
     turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
-    turnQueue: summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors),
+    turnQueue,
     turnMetrics: includeTurnMetrics ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
     requestError: latestRequestError,
     generation: summarizeGeneration(latestGeneration),
     cachedIn: latest.cachedIn,
     uncachedIn: latest.uncachedIn,
     contextTokens: latest.contextTokens,
-    maxContextTokens,
+    maxContextTokens: subagent ? latest.maxContextTokens || 0 : maxContextTokens,
     lastStepEpochMs,
     turn0Tokens,
     totalOutputTokens,
