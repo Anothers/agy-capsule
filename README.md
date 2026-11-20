@@ -151,6 +151,14 @@ node --test "test/*.test.mjs"
 
 浏览器回归是可选的。装好 Playwright 和 Chromium 后，可单独运行 `node test/browser-regressions.mjs`。
 
+## 下一站
+
+以下是以后可能会做的方向，不保证排期：
+
+- **子 Agent 本轮统计**：按子 Agent 的每次执行算作一轮，补上本轮耗时、请求次数和 token 统计。
+- **更多强度条样式**：为模型胶囊提供更多可选的强度条外观，默认仍为现有样式。
+- **WSL、SSH 与云端项目**：支持在 WSL、SSH 远程窗口和云端项目对话中显示胶囊。这些对话的数据目前不在本机，暂时无法显示。
+
 ## 贡献
 
 欢迎提 Issue 和 PR，详见[贡献指南](./CONTRIBUTING.md#中文)。
