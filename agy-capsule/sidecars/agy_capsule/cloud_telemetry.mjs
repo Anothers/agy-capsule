@@ -36,18 +36,23 @@ export function readCloudTrajectory(conversationId) {
     return '';
   };
 
+  const container = rootEl[fiberKey];
   const seen = new WeakSet();
-  const queue = [rootEl[fiberKey]];
-  let visited = 0;
+  const queue = [container?.stateNode?.current ?? container];
   let slice = null;
-  while (queue.length && visited < 6000) {
-    const fiber = queue.shift();
+  for (let i = 0; i < queue.length && i < 6000; i++) {
+    const fiber = queue[i];
     if (!fiber || seen.has(fiber)) continue;
     seen.add(fiber);
-    visited++;
     const ts = fiber.memoizedProps?.trajectorySlice;
-    if (ts && Array.isArray(ts.stepsInSlice)) {
-      if (!ts.conversationId || ts.conversationId === conversationId) {
+    if (ts?.conversationId === conversationId && Array.isArray(ts.stepsInSlice)) {
+      const meta = ts.metadata;
+      if (meta?.parentConversationId || meta?.subagentSpec || meta?.nestingDepth > 0) return null;
+      // A retained prefix or a limited tail cannot give a trustworthy context breakdown.
+      const start = ts.stepsSlice?.startIndex ?? 0;
+      const total = ts.totalStepsLength;
+      if (meta && ts.stepsInSlice.length && ts.stepsInSlice.length === total && Number.isSafeInteger(start) &&
+          (start === 0 || (start < 0 && start + total <= 0))) {
         slice = ts;
         break;
       }
@@ -55,16 +60,13 @@ export function readCloudTrajectory(conversationId) {
     if (fiber.child) queue.push(fiber.child);
     if (fiber.sibling) queue.push(fiber.sibling);
   }
-  if (!slice || slice.stepsInSlice.length === 0) return null;
+  if (!slice) return null;
 
-  const stepsOffset = toNum(slice.stepsSlice?.startIndex);
-  const steps = slice.stepsInSlice.map((step, i) => {
+  const steps = slice.stepsInSlice.map((step, idx) => {
     const m = step?.metadata || {};
     const u = m.modelUsage || null;
-    const stepIndex = m.sourceTrajectoryStepInfo?.stepIndex;
-    const idx = Number.isInteger(stepIndex) && stepIndex >= 0 ? stepIndex : stepsOffset + i;
     const retryErrors = Array.isArray(m.retryInfos)
-      ? m.retryInfos.map(r => errText(r?.error ?? r)).filter(Boolean)
+      ? m.retryInfos.map(r => errText(r?.error ?? r))
       : [];
     return {
       idx,
@@ -95,8 +97,8 @@ export function readCloudTrajectory(conversationId) {
     : [];
 
   return {
-    conversationId: slice.conversationId || conversationId,
-    totalStepsLength: toNum(slice.totalStepsLength) || steps.length,
+    conversationId: slice.conversationId,
+    totalStepsLength: slice.totalStepsLength,
     lastStepError: errText(slice.lastStepError),
     steps,
     executors,
@@ -138,64 +140,50 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
         completedAtMs: completed,
         recordedCompletedAtMs: recordedCompleted,
         createdAtMs: step.createdAtMs || null,
-        inputStartedAtMs: step.stepType === 14 && step.status !== 11 ? (step.createdAtMs || null) : null,
+        inputStartedAtMs: null, // Creation can be queue time, not consumption time.
         generatingAtMs: step.viewableAtMs || null,
         terminalAtMs: [3, 6, 7, 12].includes(step.status) ? recordedCompleted : null,
         executionId: step.executionId || '',
       };
     });
 
-  let executors = Array.isArray(raw.executors) ? raw.executors : [];
-  if (executors.length === 0 && firstTurnStep !== null && turnSteps.length > 0) {
-    const active = turnSteps.some(step => step.step_type !== 14 && ACTIVE_STATUSES.has(step.status));
-    const tail = turnSteps.at(-1);
-    if (!active && tail && tail.step_type === 15 && tail.status === 3 && (tail.recordedCompletedAtMs || tail.completedAtMs)) {
-      executors = [{ reason: 4, lastStepIndex: tail.idx, executionId: tail.executionId }];
-    }
-  }
+  const executors = Array.isArray(raw.executors) ? raw.executors : [];
 
   const turns = [];
   const parsedRequests = [];
-  let maxContextTokens = 0;
   let latestGeneration = null;
   let latestRequestError = classifyRequestError();
 
   let reqIdx = 0;
   for (let i = 0; i < steps.length; i++) {
     const step = steps[i];
-    const hasRetryErr = Array.isArray(step.retryErrors) && step.retryErrors.length > 0;
+    const retries = Array.isArray(step.retryErrors) ? step.retryErrors : [];
     const uncachedIn = step.inputTokens || 0;
     const cachedIn = step.cacheReadTokens || 0;
     const contextTokens = uncachedIn + cachedIn;
     const thinkTokens = step.thinkingTokens || 0;
     const outTokens = step.replyTokens || 0;
     const totalOut = step.outputTokens || (thinkTokens + outTokens);
-    const hasOutput = step.hasUsage && (totalOut > 0 || (step.status === 3 && contextTokens > 0));
-    if (step.maxContextTokens > 0) maxContextTokens = step.maxContextTokens;
-    if (!step.hasUsage && !hasRetryErr) continue;
+    const hasOutput = step.hasUsage && totalOut > 0;
+    if (!step.hasUsage && !retries.length) continue;
 
-    let ttft = null;
-    let streaming = null;
-    if (step.createdAtMs > 0 && step.viewableAtMs >= step.createdAtMs && step.finishedGeneratingAtMs >= step.viewableAtMs && step.finishedGeneratingAtMs > step.createdAtMs) {
-      ttft = (step.viewableAtMs - step.createdAtMs) / 1000;
-      streaming = (step.finishedGeneratingAtMs - step.viewableAtMs) / 1000;
-    }
-
-    const lastRetryErr = hasRetryErr ? step.retryErrors.at(-1) : '';
+    const lastRetryErr = retries.at(-1);
     const requestError = classifyRequestError(lastRetryErr);
     const prevIdx = i > 0 ? steps[i - 1].idx : Math.max(0, step.idx - 1);
     const splitMatches = totalOut === thinkTokens + outTokens;
+    const hasAttemptUsage = step.hasUsage && (retries.length <= 1 || !lastRetryErr);
     const usageRecord = {
-      read: step.hasUsage ? contextTokens : null,
-      cachedRead: step.hasUsage ? cachedIn : null,
-      uncachedRead: step.hasUsage ? uncachedIn : null,
-      write: step.hasUsage && splitMatches ? outTokens : null,
-      thinking: step.hasUsage && splitMatches ? thinkTokens : null,
+      read: hasAttemptUsage ? contextTokens : null,
+      cachedRead: hasAttemptUsage ? cachedIn : null,
+      uncachedRead: hasAttemptUsage ? uncachedIn : null,
+      write: hasAttemptUsage && hasOutput && splitMatches ? outTokens : null,
+      thinking: hasAttemptUsage && hasOutput && splitMatches ? thinkTokens : null,
     };
     const generation = {
       requestIndex: reqIdx,
-      ttft,
-      streaming,
+      // Renderer step transitions are not model-server TTFT or streaming duration.
+      ttft: null,
+      streaming: null,
       output: hasOutput ? totalOut : null,
       reply: hasOutput ? outTokens : null,
       thinking: hasOutput ? thinkTokens : null,
@@ -212,7 +200,7 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
       stepIndices: [step.idx],
       requestError,
       attempts: [{ usage: usageRecord }],
-      missingAttempts: 0,
+      missingAttempts: Math.max(0, retries.length - 1),
       pendingAttempt: false,
       generation,
     };
@@ -227,6 +215,7 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   if (latestRequestError.kind === 'none' && raw.lastStepError) {
     latestRequestError = classifyRequestError(raw.lastStepError);
   }
+  if (!parsedRequests.length && latestRequestError.kind === 'none') return null;
 
   let epochStart = 0;
   if (turns.length > 0) {
@@ -269,9 +258,15 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   const totalOutputTokens = Math.round(rawOut * genScale);
   const totalThinkingTokens = Math.round(rawThink * genScale);
 
+  const turnQueue = summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors);
+  // With no active step, a finished planner may be either the end of the turn
+  // or a gap before another step. Do not show a live wait on that evidence alone.
+  if (turnQueue && !turnSteps.some(step => step.step_type !== 14 && ACTIVE_STATUSES.has(step.status))) {
+    turnQueue.waitingSinceMs = null;
+  }
   return {
     turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
-    turnQueue: summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors),
+    turnQueue,
     turnMetrics: includeTurnMetrics
       ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors)
       : null,
@@ -280,7 +275,7 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
     cachedIn: latest.cachedIn,
     uncachedIn: latest.uncachedIn,
     contextTokens: latest.contextTokens,
-    maxContextTokens,
+    maxContextTokens: latest.maxContextTokens || 0,
     lastStepEpochMs,
     turn0Tokens,
     totalOutputTokens,
@@ -288,21 +283,22 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   };
 }
 
-export function createCloudTelemetryStore(maxEntries = 8) {
+export function createCloudTelemetryStore(maxEntries = 8, now = Date.now) {
   const entries = new Map();
   return {
     set(convId, raw) {
-      if (!convId || typeof convId !== 'string' || !raw || !Array.isArray(raw.steps) || raw.steps.length === 0) return;
+      if (!convId || typeof convId !== 'string') return;
+      if (raw === null) { entries.delete(convId); return; }
+      if (raw?.conversationId !== convId || !Array.isArray(raw.steps) || raw.steps.length === 0) return;
       entries.delete(convId);
-      entries.set(convId, raw);
+      entries.set(convId, { raw, expiresAt: now() + 10_000 });
       if (entries.size > maxEntries) entries.delete(entries.keys().next().value);
     },
     read(convId, includeTurnMetrics = true) {
-      const raw = convId ? entries.get(convId) : null;
-      return raw ? readCloudConversationSnapshot(raw, includeTurnMetrics) : null;
-    },
-    has(convId) {
-      return Boolean(convId && entries.has(convId));
+      const entry = entries.get(convId);
+      if (!entry) return null;
+      if (now() >= entry.expiresAt) { entries.delete(convId); return null; }
+      return readCloudConversationSnapshot(entry.raw, includeTurnMetrics);
     },
   };
 }

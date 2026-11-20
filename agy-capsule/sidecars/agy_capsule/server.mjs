@@ -18,7 +18,7 @@ import { createCloudTelemetryStore } from './cloud_telemetry.mjs';
 
 const settingsStore = createSettingsStore();
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 125;
+const PANEL_VERSION = 127;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -254,6 +254,7 @@ function parseGenRow(idx, data, includeTurnMetrics = true) {
     attempts,
     missingAttempts,
     pendingAttempt,
+    modelDisplayName: Buffer.isBuffer(m1.get(21)?.[0]) ? m1.get(21)[0].toString('utf8').trim() : '',
     generation: {
       requestIndex: idx, ttft, streaming,
       output: hasOutput ? usage.get(3)?.[0] || 0 : null,
@@ -311,13 +312,19 @@ async function makeEmptyContextResult(health = null) {
   };
 }
 
-async function inspectConversation(convId, exact = false) {
-  if (exact) lastDeckConvId = convId || '';
-  const targetId = lastDeckConvId ?? convId;
-  const dbPath = resolveConversationDb(targetId, lastDeckConvId === null);
+async function inspectConversation(convId, exact = false, subagentOnly = false) {
+  if (exact && !subagentOnly) lastDeckConvId = convId || '';
+  if (subagentOnly && !convId) return null;
+  return readSelectedConversation(subagentOnly ? convId : lastDeckConvId ?? convId,
+    !subagentOnly && lastDeckConvId === null, subagentOnly);
+}
+
+async function readSelectedConversation(convId, allowLatest, subagentOnly = false) {
+  const dbPath = resolveConversationDb(convId, allowLatest);
+  if (subagentOnly && !dbPath) return null;
   const prefs = settingsStore.read();
   if (!dbPath) {
-    const cloudSnapshot = targetId ? cloudTelemetryStore.read(targetId, prefs.showTurnMetrics) : null;
+    const cloudSnapshot = cloudTelemetryStore.read(convId, prefs.showTurnMetrics);
     if (cloudSnapshot) {
       return {
         health: null,
@@ -331,6 +338,7 @@ async function inspectConversation(convId, exact = false) {
   }
 
   const snapshot = conversationCache.read(dbPath, prefs.showTurnMetrics);
+  if (subagentOnly && !snapshot?.subagent) return null;
   const health = conversationCache.health(dbPath);
   if (!snapshot) return await makeEmptyContextResult(health);
   return {
@@ -338,7 +346,7 @@ async function inspectConversation(convId, exact = false) {
     uiVersion: PANEL_VERSION,
     ...snapshot,
     prefs,
-    ...await fetchQuota(),
+    ...(subagentOnly ? NO_QUOTA : await fetchQuota()),
   };
 }
 
@@ -353,15 +361,22 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   let turnSteps = [];
   let metricsUserStepIndex = null;
   let executors = [];
+  let subagent = false;
   try {
+    if (db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='trajectory_metadata_blob'").get()) {
+      const blob = db.prepare("SELECT data FROM trajectory_metadata_blob WHERE id='main'").get()?.data;
+      const meta = parsePbMap(Buffer.from(blob || []));
+      // CortexTrajectoryMetadata.parent_conversation_id=5, subagent_spec=8.
+      subagent = !!(meta.get(5)?.[0]?.length && meta.get(8)?.[0]?.length);
+    }
     rawRows = db.prepare('SELECT idx, data FROM gen_metadata ORDER BY idx ASC').all();
     cpRows = db.prepare('SELECT idx FROM steps WHERE step_type = 23 ORDER BY idx DESC').all();
     // A queued user input is not a new running turn until AGY consumes it.
     userStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 AND status != 11 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
     if (includeTurnMetrics) metricsUserStepIndex = db.prepare('SELECT idx FROM steps WHERE step_type = 14 ORDER BY idx DESC LIMIT 1').get()?.idx ?? null;
     const firstTurnStep = userStepIndex ?? metricsUserStepIndex;
-    if (firstTurnStep !== null) {
-      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep).map(step => {
+    if (firstTurnStep !== null || subagent) {
+      turnSteps = db.prepare('SELECT idx, step_type, status, metadata FROM steps WHERE idx >= ? ORDER BY idx').all(firstTurnStep ?? 0).map(step => {
         const fields = parsePbMap(Buffer.from(step.metadata || []));
         const stamp = fields.get(7)?.[0] || fields.get(8)?.[0];
         const time = stamp ? parsePbMap(stamp) : new Map();
@@ -481,16 +496,38 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const totalOutputTokens = Math.round(rawOut * genScale);
   const totalThinkingTokens = Math.round(rawThink * genScale);
 
+  let turnQueue;
+  if (subagent) {
+    // Parent messages and task notifications can start fresh executions without
+    // a USER_INPUT step. Never roll previous executions into this one's alerts.
+    const latestStep = turnSteps.findLast(step => ![17, 23].includes(step.step_type));
+    const executionId = latestStep?.executionId;
+    const steps = executionId ? turnSteps.filter(step => step.executionId === executionId) : [];
+    const executionByStep = new Map(turnSteps.map(step => [step.idx, step.executionId]));
+    const requests = executionId ? parsedRequests.filter(request => {
+      // The first request can still use the preceding execution's last step
+      // as input. Its persisted output steps are stronger attribution.
+      if (!request.stepIndices.length) return executionByStep.get(request.lastStepIndex) === executionId;
+      const linked = request.stepIndices.map(idx => executionByStep.get(idx)).filter(Boolean);
+      return linked.length > 0 && linked.every(id => id === executionId);
+    }) : [];
+    turnQueue = summarizeTurnQueue(requests, steps, steps[0]?.idx, executors.filter(item => item.executionId === executionId), true);
+    latestRequestError = requests.at(-1)?.requestError ?? classifyRequestError();
+  } else {
+    turnQueue = summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors);
+  }
+
   return {
+    ...(subagent && { subagent: { model: parsedRequests.at(-1)?.modelDisplayName || '' } }),
     turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
-    turnQueue: summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors),
+    turnQueue,
     turnMetrics: includeTurnMetrics ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
     requestError: latestRequestError,
     generation: summarizeGeneration(latestGeneration),
     cachedIn: latest.cachedIn,
     uncachedIn: latest.uncachedIn,
     contextTokens: latest.contextTokens,
-    maxContextTokens,
+    maxContextTokens: subagent ? latest.maxContextTokens || 0 : maxContextTokens,
     lastStepEpochMs,
     turn0Tokens,
     totalOutputTokens,
@@ -1135,6 +1172,7 @@ const UI_HTML = `<!DOCTYPE html>
     .cdp-notice { max-width: 1120px; margin: 0 auto 10px; padding: 8px 10px; border-radius: 7px; border: 1px solid color-mix(in srgb, #e0a030 45%, transparent); background: color-mix(in srgb, #e0a030 8%, var(--background, #141414)); font-size: 12px; color: var(--muted-foreground, #8e8e93); }
     #health-code { text-align: end; font-size: 12px; color: var(--muted-foreground, #8e8e93); }
     #sidebar-stats[data-stale="true"] .stats-layout { opacity: .75; }
+    #sidebar-stats[data-context-pending] .stats-layout { visibility: hidden; }
     .cdp-notice[hidden] { display: none; }
     .cdp-notice-title { font-weight: 600; color: var(--foreground, #ebebeb); margin-bottom: 3px; }
     .cdp-notice p { margin: 0 0 4px; }
@@ -1464,15 +1502,37 @@ const UI_HTML = `<!DOCTYPE html>
     const presentation = globalThis.__agyCapsulePresentation;
     ${renderFieldEditor.toString()}
     let prefs = ${JSON.stringify(DEFAULT_SETTINGS)};
+    let prefsSig = JSON.stringify(prefs);
     let labels = presentation.apply(document.body, prefs);
     let settingsLabels = presentation.dictionaries[prefs.settingsLanguage];
     let savingSettings = false;
     let settingsEpoch = 0;
     let lastData = null, refreshing = false, refreshFailures = 0;
+    let conversationId = null, conversationEpoch = 0;
     let sampleCode = '', sampleCount = 0, healthCode = '';
     const sidebarTabs = document.querySelector('.sidebar-tabs');
+    const panel = document.querySelector('.panel');
+    let statsSig, cacheSig, quotaSig;
     let sidebarView = 'stats';
     const sidebarScroll = { stats: 0, settings: 0 };
+    function syncConversation() {
+      const id = window.sidecar?.conversationId ?? new URLSearchParams(location.search).get('conversationId') ?? '';
+      if (id !== conversationId) {
+        const switched = conversationId !== null;
+        conversationId = id;
+        conversationEpoch++;
+        lastData = null;
+        refreshFailures = sampleCount = 0;
+        healthCode = sampleCode = '';
+        if (sidebarView === 'stats') panel.setAttribute('data-context-pending', '');
+        if (switched) renderHealthNotice();
+      }
+      return id;
+    }
+    function replayStats() {
+      panel.toggleAttribute('data-context-pending', !lastData);
+      if (lastData) renderData(lastData);
+    }
     function selectSidebarView(view, focus = false) {
       if (view !== sidebarView) {
         sidebarScroll[sidebarView] = window.scrollY;
@@ -1484,6 +1544,10 @@ const UI_HTML = `<!DOCTYPE html>
           tab.setAttribute('aria-selected', String(selected));
           tab.tabIndex = selected ? 0 : -1;
           document.getElementById('sidebar-' + name).hidden = !selected;
+        }
+        if (view === 'stats') {
+          syncConversation();
+          replayStats();
         }
         renderHealthNotice();
         window.scrollTo({ top: sidebarScroll[view], behavior: 'instant' });
@@ -1524,6 +1588,7 @@ const UI_HTML = `<!DOCTYPE html>
     let expandModelList = false;
     function applySettings(next, forceInputs = false) {
       prefs = { ...prefs, ...next };
+      prefsSig = JSON.stringify(prefs);
       labels = presentation.apply(document.body, prefs);
       settingsLabels = presentation.dictionaries[prefs.settingsLanguage] || presentation.dictionaries['zh-CN'];
       sidebarTabs.lang = prefs.settingsLanguage;
@@ -1597,16 +1662,19 @@ const UI_HTML = `<!DOCTYPE html>
         swatch.setAttribute('aria-label', name);
         swatch.removeAttribute('title');
       }
-      if (lastData) renderData(lastData);
+      syncConversation();
+      if (sidebarView === 'stats') replayStats();
+      if (lastData) renderHealthNotice();
     }
     applySettings(prefs);
     let panelLocked = false;
-    async function postApi(path, data = {}, signal) {
+    async function postApi(path, data = {}, signal, isCurrent) {
       const params = new URLSearchParams(window.location.search);
       const token = params.get('token') || window.sidecar?.token || '';
       const headers = { 'Content-Type': 'application/json' };
       if (token) headers['X-Sidecar-Token'] = token;
       const res = await (window.sidecar?.fetch || fetch)(path, { method: 'POST', redirect: 'error', signal, headers, body: JSON.stringify(data) });
+      if (isCurrent && !isCurrent()) return null;
       if (res.status === 401 || res.status === 403) {
         panelLocked = true;
         document.querySelector('.sidebar-content').style.display = 'none';
@@ -1826,14 +1894,17 @@ const UI_HTML = `<!DOCTYPE html>
         if (prefs[key] !== value) void saveSettings({ [key]: value });
       });
     }
-    function renderQuota(groups) {
+    function renderQuota(groups, now) {
       const root = document.getElementById('quota-root');
-      const quotaGroups = presentation.quotaView(groups, prefs, labels);
+      const quotaGroups = presentation.quotaView(groups, prefs, labels, now);
+      const useBar = presentation.appearance(prefs).quotaIndicator === 'bar';
+      const sig = JSON.stringify([prefs.language, useBar, quotaGroups]);
+      if (sig === quotaSig) return;
       if (quotaGroups.length === 0) {
         root.replaceChildren();
+        quotaSig = sig;
         return;
       }
-      const useBar = presentation.appearance(prefs).quotaIndicator === 'bar';
       let html = '';
       for (const g of quotaGroups) {
         html += '<div class="quota-group">';
@@ -1854,19 +1925,26 @@ const UI_HTML = `<!DOCTYPE html>
       }
       root.innerHTML = html;
       presentation.applyQuotaTooltips(root, labels);
+      quotaSig = sig;
     }
 
     async function refresh() {
-      if (panelLocked || refreshing) return;
+      if (panelLocked) return;
+      const convId = syncConversation();
+      if (refreshing) return;
       refreshing = true;
       const requestedSettingsEpoch = settingsEpoch;
+      const requestedConversationEpoch = conversationEpoch;
+      const isCurrent = () => {
+        syncConversation();
+        return requestedConversationEpoch === conversationEpoch;
+      };
       try {
-        const urlParams = new URLSearchParams(window.location.search);
-        const convId = window.sidecar?.conversationId || urlParams.get('conversationId') || '';
-        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000));
+        const res = await postApi('/api/context', { conversationId: convId }, AbortSignal.timeout(6000), isCurrent);
+        if (!res) return;
         const d = await res.json();
+        if (!isCurrent() || panelLocked) return;
         if (!d || d.error) throw new Error('Context unavailable');
-        if (panelLocked) return;
         if (d.uiVersion && d.uiVersion !== ${PANEL_VERSION}) {
           window.location.reload();
           return;
@@ -1880,10 +1958,17 @@ const UI_HTML = `<!DOCTYPE html>
         sampleCode = code;
         // F3/F4 and S4 already have thresholds in the backend.
         healthCode = code === healthCode || sampleCount >= 2 || !['S3', 'F1', 'F2'].includes(code) ? code : '';
-        if (!savingSettings && requestedSettingsEpoch === settingsEpoch) applySettings(d.prefs);
-        else renderData(d);
+        const nextPrefs = { ...prefs, ...d.prefs };
+        if (!savingSettings && requestedSettingsEpoch === settingsEpoch && JSON.stringify(nextPrefs) !== prefsSig) {
+          applySettings(nextPrefs);
+        } else {
+          // The settings tab still needs the model catalog and health updates.
+          renderModelList();
+          if (sidebarView === 'stats') replayStats();
+          renderHealthNotice();
+        }
       } catch {
-        if (!panelLocked) {
+        if (!panelLocked && isCurrent()) {
           refreshFailures++;
           sampleCount = 0;
           renderHealthNotice();
@@ -1892,43 +1977,28 @@ const UI_HTML = `<!DOCTYPE html>
     }
 
     function renderData(d) {
-        presentation.renderContextTooltips(document.querySelector('.panel'), d, labels);
-        presentation.renderAlerts(document.body, d, prefs, labels);
-        presentation.renderGeneration(document.querySelector('.panel'), d.generation, labels, prefs);
-        presentation.renderTurnMetrics(document.querySelector('.panel'), d.turnMetrics, labels, prefs);
+      const now = Date.now();
+      // Time can change what is shown even when the response is identical.
+      const alert = presentation.alertView(d, prefs, labels, now);
+      const elapsed = prefs.showTurnMetrics && d.turnMetrics
+        ? presentation.turnMetricsText(d.turnMetrics, labels, now).elapsed : '';
+      const sig = JSON.stringify([prefsSig, d.contextTokens, d.maxContextTokens, d.cachedIn, d.uncachedIn,
+        d.turn0Tokens, d.totalOutputTokens, d.totalThinkingTokens, d.generation, d.turnMetrics,
+        alert.contextTone, alert.contextTip, elapsed]);
+      if (sig !== statsSig) {
+        presentation.renderContextTooltips(panel, d, labels);
+        presentation.renderAlerts(document.body, d, prefs, labels, now);
+        presentation.renderGeneration(panel, d.generation, labels, prefs);
+        presentation.renderTurnMetrics(panel, d.turnMetrics, labels, prefs, now);
         const ctx = presentation.contextBreakdown(d);
 
         document.getElementById('used-pct').textContent = ctx.usedPct;
         document.getElementById('used-fraction').textContent = ctx.usedFrac;
 
-        const dotCachedEl = document.getElementById('dot-cached');
         document.getElementById('seg-read').style.width = ctx.segReadW;
         document.getElementById('seg-out').style.width = ctx.segOutW;
         document.getElementById('seg-think').style.width = ctx.segThinkW;
         document.getElementById('seg-turn0').style.width = ctx.segTurn0W;
-
-        const cache = presentation.cacheView(d, prefs);
-        const valCacheHitEl = document.getElementById('val-cache-hit');
-        const valCacheHitKEl = document.getElementById('val-cache-hit-k');
-        const cacheMeterEl = document.getElementById('cache-meter');
-        const cacheMeterFillEl = document.getElementById('cache-meter-fill');
-        dotCachedEl.innerHTML = cache.iconSvg;
-        if (cacheMeterEl && cacheMeterFillEl) {
-          cacheMeterEl.hidden = cache.indicator !== 'bar';
-          if (!cacheMeterEl.hidden) {
-            cacheMeterFillEl.style.width = cache.progressPct;
-            cacheMeterFillEl.style.backgroundColor = cache.progressColor;
-          }
-        }
-        valCacheHitEl.style.color = cache.valColor;
-        valCacheHitEl.style.textDecoration = cache.valDeco;
-        valCacheHitEl.style.opacity = cache.valOp;
-        valCacheHitEl.textContent = cache.text;
-        if (valCacheHitKEl) {
-          valCacheHitKEl.style.color = cache.valColor || 'var(--muted-foreground, #8e8e93)';
-          valCacheHitKEl.textContent = cache.countdown;
-        }
-        document.getElementById('row-cached').title = presentation.cacheTooltip(d, labels, Date.now(), prefs);
 
         document.getElementById('val-turn0-k').textContent = ctx.turn0K;
         document.getElementById('val-read-k').textContent = ctx.readK;
@@ -1938,10 +2008,42 @@ const UI_HTML = `<!DOCTYPE html>
         document.getElementById('val-read-pct').textContent = ctx.readPct;
         document.getElementById('val-think-pct').textContent = ctx.thinkPct;
         document.getElementById('val-out-pct').textContent = ctx.outPct;
+        statsSig = sig;
+      }
+      renderCache(d, now);
+      renderQuota(d.quotaGroups, now);
+    }
 
-        renderModelList();
-        renderQuota(d.quotaGroups);
-        renderHealthNotice();
+    function renderCache(d, now) {
+      const cache = presentation.cacheView(d, prefs, now);
+      const title = presentation.cacheTooltip(d, labels, now, prefs);
+      const sig = JSON.stringify([cache.indicator, cache.iconSvg, cache.valColor, cache.valDeco,
+        cache.valOp, cache.text, cache.countdown, title,
+        cache.indicator === 'bar' ? [cache.progressPct, cache.progressColor] : null]);
+      if (sig === cacheSig) return;
+      const dotCachedEl = document.getElementById('dot-cached');
+      const valCacheHitEl = document.getElementById('val-cache-hit');
+      const valCacheHitKEl = document.getElementById('val-cache-hit-k');
+      const cacheMeterEl = document.getElementById('cache-meter');
+      const cacheMeterFillEl = document.getElementById('cache-meter-fill');
+      dotCachedEl.innerHTML = cache.iconSvg;
+      if (cacheMeterEl && cacheMeterFillEl) {
+        cacheMeterEl.hidden = cache.indicator !== 'bar';
+        if (!cacheMeterEl.hidden) {
+          cacheMeterFillEl.style.width = cache.progressPct;
+          cacheMeterFillEl.style.backgroundColor = cache.progressColor;
+        }
+      }
+      valCacheHitEl.style.color = cache.valColor;
+      valCacheHitEl.style.textDecoration = cache.valDeco;
+      valCacheHitEl.style.opacity = cache.valOp;
+      valCacheHitEl.textContent = cache.text;
+      if (valCacheHitKEl) {
+        valCacheHitKEl.style.color = cache.valColor || 'var(--muted-foreground, #8e8e93)';
+        valCacheHitKEl.textContent = cache.countdown;
+      }
+      document.getElementById('row-cached').title = title;
+      cacheSig = sig;
     }
 
     // Shown on both tabs; text follows the open tab's language.
@@ -1977,7 +2079,8 @@ const UI_HTML = `<!DOCTYPE html>
     function renderHealthNotice() {
       const notice = document.getElementById('cdp-notice');
       const stale = refreshFailures >= 5;
-      document.getElementById('sidebar-stats').dataset.stale = String(stale);
+      const stats = document.getElementById('sidebar-stats');
+      if (stats.dataset.stale !== String(stale)) stats.dataset.stale = String(stale);
       const code = stale ? 'S2' : healthCode;
       notice.hidden = !code || panelLocked;
       if (notice.hidden) return;
@@ -2057,7 +2160,8 @@ const UI_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-export { inspectConversation, UI_HTML, parseGenRow, readConversationSnapshot };
+const rememberCloudTelemetry = cloudTelemetryStore.set;
+export { inspectConversation, UI_HTML, parseGenRow, readConversationSnapshot, rememberCloudTelemetry };
 
 const isMain = (() => {
   try {
@@ -2086,9 +2190,11 @@ export async function startPanel(loadSdk = () => import('sidecar_sdk'), env = pr
     body: JSON.stringify({ uiVersion: PANEL_VERSION }) }), 'GET');
   app.api('/api/context', async (data) => {
     const deckCdp = deckInjector?.status?.() ?? 'unknown';
-    const conversationId = data?.conversationId || app.config.conversationId;
+    // Full View changes the sidecar's conversation; opening a child tab
+    // beside its parent does not. Neither should depend on the last CDP footer.
+    const conversationId = data?.conversationId ?? app.config?.conversationId ?? '';
     return {
-      ...await inspectConversation(conversationId),
+      ...await readSelectedConversation(conversationId, false),
       deckCdp,
       deckCdpInfo: cdpNotice.info(deckCdp),
       availableModels: deckInjector?.models?.(conversationId) ?? [],
@@ -2105,7 +2211,7 @@ if (isMain && (process.env.ANTIGRAVITY_LS_ADDRESS || process.env.ANTIGRAVITY_SID
   const injector = deckInjector = startDeckInjector(inspectConversation, {
     productRoots: conversationDirs.map(dir => dirname(dir)),
     needsCloudTelemetry: convId => !resolveConversationDb(convId, false),
-    onCloudTelemetry: (convId, raw) => cloudTelemetryStore.set(convId, raw),
+    onCloudTelemetry: rememberCloudTelemetry,
     onStatus: state => cdpNotice.observe(state),
   });
   let stopping = false;

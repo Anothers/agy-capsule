@@ -30,22 +30,23 @@ await test('Footer probe and capsule follow the visible composer and release the
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
-  const panel = (id, style) => `<section id="${id}" style="${style}"><div class="agy-composer-footer"><div><button>Gemini</button></div></div></section>`;
+  const panel = (id, style, attrs = '') => `<section ${attrs} style="${style}"><div id="${id}" data-testid="conversation-view"><div class="agy-composer-footer"><div><button>Gemini</button></div></div></div></section>`;
   await page.setContent([
     panel('hidden', 'display:none'), panel('invisible', 'visibility:hidden'), panel('transparent', 'opacity:0'),
     panel('offscreen', 'position:fixed;left:110vw;width:950px'), panel('flat', 'width:0'),
-    panel('small', 'width:320px'), panel('active', 'width:800px'),
+    panel('small', 'width:320px', 'data-pane-id="small" data-pane-unfocused'),
+    panel('active', 'width:300px', 'data-pane-id="active"'),
   ].join(''));
   await page.evaluate(buildRuntimeBundle(owner).code);
   const probe = () => page.evaluate(owner => globalThis.__agyCapsuleDeck.readState(owner).hasFooter, owner);
   const host = page.locator('#agy-capsule-host');
-  const mountedIn = () => host.evaluate(el => el.closest('section').id);
+  const mountedIn = () => host.evaluate(el => el.closest('[data-testid="conversation-view"]').id);
   const data = snapshot();
   assert.equal(await probe(), true);
   await apply(page, data);
   assert.equal(await mountedIn(), 'active');
 
-  await page.locator('#active').evaluate(el => {
+  await page.locator('section:has(#active)').evaluate(el => {
     el.querySelector('.agy-composer-footer > div').classList.add('dk-fl-squeezed');
     el.hidden = true;
   });
@@ -56,10 +57,194 @@ await test('Footer probe and capsule follow the visible composer and release the
   assert.equal(await probe(), false);
   await apply(page, data);
   assert.equal(await host.count(), 0);
-  await page.locator('#hidden').evaluate(el => { el.style.display = 'block'; });
+  await page.locator('section:has(#hidden)').evaluate(el => { el.style.display = 'block'; });
   assert.equal(await probe(), true);
   await apply(page, data);
   assert.equal(await mountedIn(), 'hidden');
+});
+
+await test('Injected cloud reader runs without imports and rejects stale composer identity', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage();
+  const id = '11111111-1111-1111-1111-111111111111';
+  const other = '22222222-2222-2222-2222-222222222222';
+  await page.setContent(`<main id="root" data-testid="conversation-view" data-cascade-id="${id}"><div class="agy-composer-footer"><div><button>Model</button></div></div></main>`);
+  await page.evaluate(id => {
+    document.querySelector('main').__reactContainer$fixture = {child: {memoizedProps: {trajectorySlice: {
+      conversationId: id, metadata: {}, totalStepsLength: 1,
+      stepsInSlice: [{type: 15, status: 3, metadata: {modelUsage: {inputTokens: 50}}}],
+    }}}};
+  }, id);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const read = (caller, path) => page.evaluate(({ caller, path, id }) => globalThis.__agyCapsuleDeck.readCloudTelemetry(caller, path ?? location.pathname, id), { caller, path, id });
+  const sample = await read(owner);
+  assert.equal(sample.conversationId, id);
+  assert.equal(sample.steps[0].inputTokens, 50);
+  assert.equal(await read(owner - 1), 'superseded');
+  assert.equal(await read(owner, '/wrong'), false);
+  await page.locator('main').evaluate((node, id) => node.setAttribute('data-cascade-id', id), other);
+  assert.equal(await read(owner), false, 'a main view swap invalidates the pending read even without a route change');
+});
+
+await test('A wider side-question composer never takes the main footer capsule', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+  const id = '11111111-1111-1111-1111-111111111111';
+  const footer = '<div data-testid="agent-input-box"><div class="agy-composer-footer"><div><button>Gemini</button></div></div></div>';
+  await page.route('http://agy.test/**', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.goto(`http://agy.test/c/${id}?tab=side_question__fixture`);
+  await page.setContent(`<div style="display:flex">
+    <aside data-testid="side-question-tab-content" style="width:600px">
+      <div data-testid="side-question-tab-composer" data-side-panel-composer>${footer}</div>
+    </aside>
+    <main data-testid="conversation-view" data-cascade-id="${id}" style="width:320px">${footer}</main>
+  </div>`);
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const state = () => page.evaluate(owner => globalThis.__agyCapsuleDeck.readState(owner), owner);
+  const host = page.locator('#agy-capsule-host');
+  const side = page.getByTestId('side-question-tab-content');
+  const main = page.getByTestId('conversation-view');
+  assert.ok((await side.locator('.agy-composer-footer').boundingBox()).width >
+    (await main.locator('.agy-composer-footer').boundingBox()).width);
+  assert.equal(await apply(page, snapshot()), true);
+  assert.equal(await main.locator('#agy-capsule-host').count(), 1);
+  assert.equal(await side.locator('#agy-capsule-host, [data-agy-capsule-subagent]').count(), 0);
+  assert.deepEqual((await state()).subagentIds, []);
+
+  await main.evaluate(el => { el.hidden = true; });
+  assert.equal((await state()).hasFooter, false, 'a visible side question cannot stand in for a missing main composer');
+  assert.equal(await host.count(), 0);
+  await main.evaluate(el => { el.hidden = false; });
+  await side.evaluate(el => { el.hidden = true; });
+  await apply(page, snapshot());
+  assert.equal(await main.locator('#agy-capsule-host').count(), 1);
+});
+
+await test('Child capsules follow the transcript in side and main views without borrowing the parent', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 960, height: 600 } });
+  const main = '11111111-1111-1111-1111-111111111111';
+  const first = '22222222-2222-2222-2222-222222222222';
+  const second = '33333333-3333-3333-3333-333333333333';
+  await page.route('http://agy.test/**', route => route.fulfill({ body: '', contentType: 'text/html' }));
+  await page.goto('http://agy.test/c/' + main);
+  await page.setContent(`
+    <div style="display:flex;gap:10px">
+      <main data-testid="conversation-view" data-cascade-id="${main}" style="width:600px;min-height:150px">
+        <div class="agy-composer-footer"><div><button>Parent model</button></div></div>
+      </main>
+      <aside style="width:220px;overflow:hidden">
+        <div data-testid="subagent-tab-conversation" data-cascade-id="${first}" style="height:300px"></div>
+        <div data-testid="subagent-tab-composer">
+          <div id="native-child-input" style="position:relative;z-index:3;height:104px;background:white"></div>
+        </div>
+      </aside>
+      <aside hidden>
+        <div data-testid="subagent-tab-conversation" data-cascade-id="${second}" style="height:150px"></div>
+        <div data-testid="subagent-tab-composer"></div>
+      </aside>
+    </div>
+  `);
+  await page.evaluate(() => { globalThis.__agyCapsulePresentation = { version: 75 }; });
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  assert.equal(await page.evaluate(() => globalThis.__agyCapsulePresentation.version), 76);
+  const state = () => page.evaluate(owner => globalThis.__agyCapsuleDeck.readState(owner), owner);
+  const applyMain = (id, data) => page.evaluate(({ owner, id, data }) =>
+    globalThis.__agyCapsuleDeck.apply(data, location.pathname, owner, id), { owner, id, data });
+  const applyChild = (id, data) => page.evaluate(({ owner, id, data }) =>
+    globalThis.__agyCapsuleDeck.applySubagent(data, location.pathname, owner, id), { owner, id, data });
+  const parent = page.locator('#agy-capsule-host');
+  const child = page.locator('[data-agy-capsule-subagent]');
+  const nativeStyle = page.locator('#agy-capsule-native-layout');
+  const firstData = { ...snapshot(), subagent: { model: 'Child model (High)' }, contextTokens: 64000,
+    turnQueue: { waits: [60], turnTerminal: true } };
+  assert.deepEqual((await state()).subagentIds, [first], 'a retained hidden tab is ignored');
+  await apply(page, snapshot());
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+  await page.evaluate(() => history.replaceState({}, '', '/'));
+  assert.equal((await state()).conversationId, main);
+  assert.equal((await state()).hasFooter, true, 'an ordinary main composer survives without a /c/ route');
+  assert.equal(await applyMain(main, snapshot()), true);
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+  assert.equal(await child.count(), 0);
+  assert.equal(await applyChild(first, firstData), true);
+  assert.equal(await child.locator('[data-el="childModel"]').textContent(), 'Child model (High)');
+  assert.match(await child.locator('[data-el="childModel"]').getAttribute('title'), /^Model used in the last request: Child model/);
+  assert.equal(await child.locator('[data-el="grpCtx"] [data-k="pillCtx"]').textContent(), '25%');
+  assert.equal(await child.locator('[data-el="grpQuota"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpError"]').getAttribute('data-alert-mode'), 'queue');
+  assert.ok((await child.locator('#deck-metrics-strip').boundingBox()).width <= 220);
+  await child.locator('[data-el="grpCtx"] .dk-pill').click();
+  assert.equal(await child.locator('.dk-ctx-pop').isVisible(), true);
+  assert.equal(await child.evaluate(host => {
+    const pop = host.shadowRoot.querySelector('.dk-ctx-pop');
+    const panel = pop.getBoundingClientRect();
+    const input = document.querySelector('#native-child-input').getBoundingClientRect();
+    const x = Math.max(panel.left, input.left) + 15;
+    const y = Math.min(panel.bottom, input.bottom) - 15;
+    return y > Math.max(input.top, panel.top)
+      && host.shadowRoot.elementFromPoint(x, y)?.closest('.dk-pop') === pop;
+  }), true, 'where the two overlap, the pinned popover receives clicks above the native input');
+  await page.keyboard.press('Escape');
+  assert.equal(await child.locator('.dk-ctx-pop').isVisible(), false);
+  await page.mouse.move(20, 20);
+  await child.locator('[data-el="grpCtx"] .dk-pill').hover();
+  await child.locator('.dk-ctx-pop:popover-open').waitFor();
+
+  const childPane = page.locator('aside:not([hidden])');
+  await childPane.evaluate(el => { el.style.width = '64px'; });
+  await child.locator('#deck-metrics-strip').waitFor({ state: 'hidden' });
+  assert.equal(await child.locator('.dk-ctx-pop:popover-open').count(), 0, 'the width fallback must also close the overlay');
+  await page.mouse.move(20, 20);
+  await childPane.evaluate(el => { el.style.width = '220px'; });
+  await child.locator('#deck-metrics-strip').waitFor({ state: 'visible' });
+  assert.equal(await child.locator('[data-el="grpError"]').isVisible(), true, 'all pills come back after resizing without a poll');
+  assert.equal(await parent.locator('[data-k="pillCtx"]').textContent(), '50%');
+
+  await page.locator('aside:not([hidden]) [data-testid="subagent-tab-conversation"]').evaluate((el, id) => {
+    el.dataset.cascadeId = id;
+  }, second);
+  assert.equal(await child.count(), 0, 'the same URL must not keep the previous child strip');
+  assert.deepEqual((await state()).subagentIds, [second]);
+  assert.equal(await nativeStyle.count(), 1, 'side cleanup preserves the main native layout');
+  assert.equal(await applyChild(first, firstData), false, 'reject a delayed snapshot for the previous child');
+  const incomplete = { ...firstData, subagent: { model: '' }, maxContextTokens: 0,
+    requestError: { kind: 'rate_limited' } };
+  await applyChild(second, incomplete);
+  assert.equal(await child.locator('[data-el="childModel"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpCtx"]').isVisible(), false);
+  assert.equal(await child.locator('[data-el="grpError"]').getAttribute('data-alert-mode'), 'error');
+
+  await page.evaluate(id => {
+    document.querySelector('aside:not([hidden])').remove();
+    document.querySelector('main').dataset.cascadeId = id;
+    document.querySelector('.agy-composer-footer').remove();
+  }, second);
+  assert.deepEqual((await state()).subagentIds, [second], 'read the displayed transcript ID, not the old URL');
+  assert.equal(await parent.count(), 0);
+  await applyChild(second, null);
+  assert.equal(await child.count(), 0, 'no verified child snapshot means no strip');
+  await page.evaluate(id => history.pushState({}, '', '/c/' + id), second);
+  assert.deepEqual((await state()).subagentIds, [second]);
+  await applyChild(second, firstData);
+  assert.equal(await page.locator('main > [data-agy-capsule-subagent]').count(), 1);
+  await page.evaluate(() => document.querySelector('main').insertAdjacentHTML('beforeend',
+    '<div><div class="agy-composer-footer"><div style="min-height:24px"></div></div></div>'));
+  assert.equal((await state()).hasFooter, true);
+  await apply(page, firstData);
+  assert.equal(await child.count(), 1);
+  assert.equal(await parent.count(), 0, 'a child in the main composer is still read-only');
+  await page.locator('main').evaluate((el, id) => { el.dataset.cascadeId = id; }, main);
+  assert.equal(await child.count(), 0, 'main transcript changes also clear the current child');
+  assert.equal(await applyMain(second, firstData), false, 'reject a delayed snapshot for the old main transcript');
+  assert.equal(await applyMain(main, snapshot()), true);
+  assert.equal(await parent.count(), 1, 'the visible normal transcript still wins over the stale URL');
+  await page.evaluate(() => globalThis.__agyCapsuleDeck.dispose());
+  assert.equal(await child.count(), 0);
+  assert.equal(await parent.count(), 0);
 });
 
 await test('Sidebar clears empty or missing quotas and renders a later fresh snapshot', async t => {
@@ -98,6 +283,137 @@ await test('Sidebar clears empty or missing quotas and renders a later fresh sna
   assert.equal(await page.locator('.sidebar-content').isVisible(), false);
   assert.match(await page.locator('#panel-auth-notice').textContent(), /Antigravity/);
   assert.match(await page.locator('#panel-auth-notice').textContent(), /S1/);
+});
+
+await test('Sidebar skips unchanged and hidden statistics but catches up on time and data changes', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 700 } });
+  const now = 1_700_000_000_000;
+  const data = snapshot();
+  data.prefs.showTurnMetrics = true;
+  data.lastStepEpochMs = now - 171_000;
+  data.turnMetrics = { state: 'running', startedAtMs: now - 10_000 };
+  data.quotaGroups[0].buckets[0].resetTime = new Date(now + 125_000).toISOString();
+  let polls = 0;
+  await page.addInitScript(now => {
+    window.testNow = now;
+    Date.now = () => window.testNow;
+    const interval = window.setInterval;
+    window.setInterval = (fn, ms, ...args) => {
+      if (fn.name !== 'refresh') return interval(fn, ms, ...args);
+      window.testRefresh = fn;
+    };
+  }, now);
+  await page.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') { polls++; return route.fulfill({ json: data }); }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  await page.waitForFunction(() => document.querySelector('#used-pct').textContent === '50%');
+  const text = selector => page.locator(selector).first().textContent();
+  const tick = () => page.evaluate(() => window.testRefresh());
+  await page.evaluate(() => {
+    window.quotaBefore = document.querySelector('.quota-bucket');
+  });
+  const tickAndCount = () => page.evaluate(async () => {
+    let records = 0;
+    const observer = new MutationObserver(changes => { records += changes.length; });
+    observer.observe(document.querySelector('#sidebar-stats'), { subtree: true, childList: true, attributes: true, characterData: true });
+    await window.testRefresh();
+    records += observer.takeRecords().length;
+    observer.disconnect();
+    return records;
+  });
+  assert.equal(await tickAndCount(), 0, 'an identical poll must not write statistics DOM');
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '10s');
+  assert.equal(await text('.quota-mid'), '2m');
+  await page.evaluate(now => { window.testNow = now + 1000; }, now);
+  await tick();
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '11s');
+  assert.equal(await page.evaluate(() => window.quotaBefore === document.querySelector('.quota-bucket')), true);
+  await page.evaluate(now => { window.testNow = now + 10_000; }, now);
+  await tick();
+  assert.equal(await text('[data-turn-metric="elapsed"]'), '20s');
+  assert.equal(await text('.quota-mid'), '1m');
+  assert.equal(await text('#val-cache-hit-k'), '~1m');
+  data.requestError = { kind: 'context_overflow' };
+  await tick();
+  assert.equal(await page.locator('body').getAttribute('data-context-tone'), 'error');
+  const overview = page.locator('[data-context-tip="overview"]').first();
+  const overflowTip = await overview.getAttribute('title');
+  assert.equal(await tickAndCount(), 0);
+  assert.equal(await overview.getAttribute('title'), overflowTip, 'unchanged alerts do not append another warning');
+
+  await page.locator('#sidebar-tab-settings').click();
+  const before = polls;
+  data.contextTokens = 64_000;
+  data.availableModels = ['Gemini Fixture'];
+  data.deckCdp = 'no-anchor';
+  assert.equal(await tickAndCount(), 0, 'changed data must not write hidden statistics');
+  assert.equal(polls, before + 1, 'settings still receives fresh data for its own controls and health');
+  assert.equal(await text('#used-pct'), '50%');
+  assert.equal(await text('[data-model-toggle="Gemini Fixture"]'), 'Fixture');
+  assert.match(await text('#health-code'), /F3/);
+  await page.locator('#sidebar-tab-stats').click();
+  assert.equal(await text('#used-pct'), '25%');
+  assert.equal(polls, before + 1, 'returning to statistics paints the latest snapshot without waiting for a poll');
+});
+
+await test('Sidebar drops an in-flight response and never replays another conversation on tab return', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 360, height: 700 } });
+  await page.addInitScript(() => {
+    window.sidecar = { conversationId: 'A' };
+    const interval = window.setInterval;
+    window.setInterval = (fn, ms, ...args) => {
+      if (fn.name !== 'refresh') return interval(fn, ms, ...args);
+      window.testRefresh = fn;
+    };
+  });
+  let holdA = false, releaseA, polls = 0;
+  await page.route('http://agy.test/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') {
+      const { conversationId } = route.request().postDataJSON();
+      polls++;
+      if (conversationId === 'A' && holdA) {
+        await new Promise(resolve => { releaseA = resolve; });
+        return route.fulfill({ json: { ...snapshot(), contextTokens: 192000, deckCdp: 'no-anchor' } });
+      }
+      return route.fulfill({ json: conversationId === 'A'
+        ? { ...snapshot(), health: { code: 'S4' } }
+        : { ...snapshot(), contextTokens: 64000 } });
+    }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await page.goto('http://agy.test/?token=fixture');
+  await page.waitForFunction(() => document.querySelector('#used-pct').textContent === '50%');
+  await page.locator('#cdp-notice').waitFor();
+  await page.locator('#sidebar-tab-settings').click();
+  holdA = true;
+  const sent = page.waitForRequest(request => new URL(request.url()).pathname === '/api/context');
+  const stale = page.evaluate(() => window.testRefresh());
+  await sent;
+  await page.evaluate(() => { window.sidecar.conversationId = 'B'; });
+  await page.locator('#sidebar-tab-stats').click();
+  assert.equal(await page.locator('.stats-layout').isVisible(), false, 'A is not replayed while awaiting B');
+  assert.equal(await page.locator('#cdp-notice').isVisible(), false, 'A’s visible health notice also clears');
+  releaseA();
+  await stale;
+  assert.equal(await page.locator('.stats-layout').isVisible(), false, 'late A response cannot unhide the stats');
+  assert.equal(await page.locator('#used-pct').textContent(), '50%', 'late 75% response never renders');
+  assert.equal(await page.locator('#cdp-notice').isVisible(), false, 'late health status is discarded too');
+
+  await page.locator('#sidebar-tab-settings').click();
+  await page.evaluate(() => window.testRefresh());
+  const before = polls;
+  await page.locator('#sidebar-tab-stats').click();
+  assert.equal(await page.locator('.stats-layout').isVisible(), true);
+  assert.equal(await page.locator('#used-pct').textContent(), '25%', 'a matching B snapshot is replayed synchronously');
+  assert.equal(polls, before);
 });
 
 await test('Chinese health notice debounces failures, prioritizes sidebar data and recovers without losing statistics', async t => {
@@ -185,7 +501,7 @@ await test('Footer reveals and wider speed values never overlap the native contr
     .right{display:flex;align-items:center;gap:2px;flex-shrink:0}button{font:inherit;white-space:nowrap}
     [data-testid=permissions-selector-trigger]{display:flex;align-items:center;gap:4px;padding:6px;border:0;height:28px}
     [data-testid=permissions-selector-trigger] svg{width:14px;height:14px;flex-shrink:0}
-    </style><div class="agy-composer-footer"><div class="footer-left"><button>+</button><div class="model"><button>Gemini 4 Argon Medium</button></div></div><div class="right"><button data-testid="permissions-selector-trigger"><svg></svg><span>Turbo</span><svg></svg></button><button>Send</button></div></div>`);
+    </style><main data-testid="conversation-view"><div class="agy-composer-footer"><div class="footer-left"><button>+</button><div class="model"><button>Gemini 4 Argon Medium</button></div></div><div class="right"><button data-testid="permissions-selector-trigger"><svg></svg><span>Turbo</span><svg></svg></button><button>Send</button></div></div></main>`);
   await page.evaluate(buildRuntimeBundle(owner).code);
   const samples = () => page.evaluate(async () => {
     const gaps = [];
@@ -219,7 +535,7 @@ await test('Pinned popovers fit a narrower clipping container and regain their w
   await page.setContent(`<style>
     body{font:13px Arial}#clipper{width:400px;overflow:hidden;position:absolute;bottom:50px;left:100px;padding-top:330px}
     .agy-composer-footer{display:flex;align-items:center;gap:4px}.footer-left{display:flex;align-items:center;flex:1;min-width:0}
-    </style><div id="clipper"><div class="agy-composer-footer"><div class="footer-left"><button>Gemini</button></div><button>Send</button></div></div>`);
+    </style><div id="clipper" data-testid="conversation-view"><div class="agy-composer-footer"><div class="footer-left"><button>Gemini</button></div><button>Send</button></div></div>`);
   await page.evaluate(buildRuntimeBundle(owner).code);
   const data = snapshot();
   data.prefs = { ...data.prefs, panelLayout: 'matched', quotaIndicator: 'bar', resetFormat: 'localized' };
@@ -258,7 +574,7 @@ await test('A newer injector takes over the same bundle and rejects an in-flight
   const page = await browser.newPage();
   await page.route('https://127.0.0.1:5351/', route => route.fulfill({ body: '<!doctype html>', contentType: 'text/html' }));
   await page.goto('https://127.0.0.1:5351/');
-  await page.setContent('<div class="agy-composer-footer" style="display:flex;width:600px"><div style="display:flex;flex:1"><button>Gemini</button></div><button>Send</button></div>');
+  await page.setContent('<main data-media-drop-scope><div data-testid="agent-input-box"><div class="agy-composer-footer" style="display:flex;width:600px"><div style="display:flex;flex:1"><button>Gemini</button></div><button>Send</button></div></div></main>');
 
   const directory = mkdtempSync(join(tmpdir(), 'agy-cdp-takeover-'));
   const portFile = join(directory, 'port');
@@ -322,7 +638,7 @@ await test('Model picker submits one host option and releases the native trigger
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage();
-  await page.setContent('<textarea>draft</textarea><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div>');
+  await page.setContent('<main data-testid="conversation-view"><textarea>draft</textarea><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div></main>');
   const trigger = page.getByTestId('model-selector-trigger');
   await trigger.evaluate(button => {
     const options = ['Claude (Low)', 'Argon (Low)', 'Argon (High)', 'Fixed'].map(label => ({ label }));
@@ -368,7 +684,7 @@ await test('2.33 model picker shows the inherited effort, can hide previews, and
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage();
-  await page.setContent('<div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div>');
+  await page.setContent('<main data-testid="conversation-view"><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div></main>');
   const trigger = page.getByTestId('model-selector-trigger');
   await trigger.evaluate(button => {
     const modelOptions = ['Claude (Low)', 'Argon (Low)', 'Argon (Medium)', 'Argon (High)', 'Fixed (High)']

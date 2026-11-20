@@ -81,8 +81,8 @@ export function createSettingsStore(filePath = join(homedir(), '.gemini', 'confi
   let lastStat = '';
   function read() {
     try {
-      const stat = statSync(filePath);
-      const key = `${stat.mtimeMs}:${stat.size}`;
+      const stat = statSync(filePath, { bigint: true });
+      const key = `${stat.ino}:${stat.size}:${stat.mtimeNs}`;
       if (key !== lastStat) {
         const raw = JSON.parse(readFileSync(filePath, 'utf8'));
         cached = normalizeSettings(raw);

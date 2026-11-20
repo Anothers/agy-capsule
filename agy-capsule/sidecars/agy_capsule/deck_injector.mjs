@@ -19,36 +19,79 @@ const PORT_FILE =
       ? join(process.env.APPDATA || join(homedir(), 'AppData', 'Roaming'), 'Antigravity', 'DevToolsActivePort')
       : join(process.env.XDG_CONFIG_HOME || join(homedir(), '.config'), 'Antigravity', 'DevToolsActivePort');
 
-// A renderer can retain several composers while only one is on screen.
+// Side panels reuse the native footer. Select the owning view, never the
+// widest composer; geometry only tells us whether a candidate is on screen.
 function findFooterLeft() {
-  let best = null, bestWidth = 0;
+  let main = null, newComposer = null;
+  const nonMain = '[data-side-panel-composer], [data-testid="side-question-tab-content"], [data-testid="subagent-tab-composer"], [data-testid="voice-dock-composer"]';
   for (const el of document.querySelectorAll('.agy-composer-footer > div:first-child')) {
+    if (el.closest(nonMain)) continue;
+    const view = el.closest('[data-testid="conversation-view"]');
+    // New-conversation surfaces have the host's input and media scope, but
+    // no conversation-view until the conversation starts.
+    if (!view && !el.closest('[data-testid="agent-input-box"]')?.closest('[data-media-drop-scope]')) continue;
     if (!el.checkVisibility({ opacityProperty: true, visibilityProperty: true })) continue;
     const r = el.getBoundingClientRect();
-    if (Math.min(r.bottom, window.innerHeight) <= Math.max(r.top, 0)) continue;
-    const width = Math.min(r.right, window.innerWidth) - Math.max(r.left, 0);
-    if (width > bestWidth) { best = el; bestWidth = width; }
+    if (Math.min(r.bottom, innerHeight) <= Math.max(r.top, 0) ||
+        Math.min(r.right, innerWidth) <= Math.max(r.left, 0)) continue;
+    if (view) {
+      const pane = view.closest('[data-pane-id]');
+      if (pane && !pane.hasAttribute('data-pane-unfocused')) return el;
+      main ??= el;
+    } else {
+      newComposer ??= el;
+    }
   }
-  return best;
+  return main ?? newComposer;
 }
 
-function pageMount(d) {
+function conversationIdOf(el) {
+  const id = el?.getAttribute('data-cascade-id');
+  return /^[0-9a-f-]{36}$/i.test(id || '') ? id : '';
+}
+
+// The child transcript and the child composer share a wrapper. The composer
+// wrapper survives even when the host omits the input or native model button.
+function findSubagentAnchors(footer) {
+  const anchors = new Map();
+  const visible = el => {
+    if (!el?.checkVisibility({ opacityProperty: true, visibilityProperty: true })) return false;
+    const r = el.getBoundingClientRect();
+    return Math.min(r.right, innerWidth) > Math.max(r.left, 0) && Math.min(r.bottom, innerHeight) > Math.max(r.top, 0);
+  };
+  const add = (el, id) => { if (id && visible(el)) anchors.set(el, id); };
+  for (const transcript of document.querySelectorAll('[data-testid="subagent-tab-conversation"][data-cascade-id]')) {
+    const composer = transcript.nextElementSibling;
+    const id = conversationIdOf(transcript);
+    if (id && composer?.matches('[data-testid="subagent-tab-composer"]') && visible(transcript)) {
+      // The wrapper can have zero height before we add the strip.
+      if (composer.checkVisibility({ opacityProperty: true, visibilityProperty: true })) anchors.set(composer, id);
+    }
+  }
+  for (const el of document.querySelectorAll('[data-testid="conversation-view"][data-cascade-id]')) {
+    if (!el.contains(footer)) add(el, conversationIdOf(el));
+  }
+  return anchors;
+}
+
+function pageMount(d, childAnchor = null) {
   if (window.__deckOwnerTs && d.instanceTs && d.instanceTs < window.__deckOwnerTs) {
     return 'superseded';
   }
   if (d.instanceTs) {
     window.__deckOwnerTs = d.instanceTs;
   }
-  const footerLeft = findFooterLeft();
+  const footerLeft = childAnchor || findFooterLeft();
   if (!footerLeft) {
     window.__agyCapsuleCleanup?.();
     return 'no-footer';
   }
+  const childSidebar = childAnchor?.matches('[data-testid="subagent-tab-composer"]');
   const presentation = globalThis.__agyCapsulePresentation;
 
   const clearFooterLayout = (node) => {
     node._turboTarget?.removeAttribute('data-deck-turbo-collapsed');
-    const footer = node._observedFooterLeft || node.closest('.agy-composer-footer > div:first-child');
+    const footer = childAnchor ? null : node._observedFooterLeft || node.closest('.agy-composer-footer > div:first-child');
     if (!footer) return;
     const classes = ['dk-fl-squeezed', 'dk-model-squeezed', 'dk-model-squeezed-hard', 'dk-squeeze-box', 'dk-squeeze-item'];
     for (const element of [footer, ...footer.querySelectorAll(classes.map(c => '.' + c).join(','))]) element.classList.remove(...classes);
@@ -68,15 +111,22 @@ function pageMount(d) {
   // A late legacy injector may recreate its light-DOM strip after migration.
   // Remove it on every pass, not only when initializing the shadow host.
   const legacy = document.getElementById('deck-metrics-strip');
-  if (legacy) { release(legacy); legacy.remove(); }
-  let host = document.getElementById('agy-capsule-host');
+  if (legacy && !childAnchor) { release(legacy); legacy.remove(); }
+  let host = childAnchor
+    ? childAnchor.querySelector(':scope > [data-agy-capsule-subagent]')
+    : document.getElementById('agy-capsule-host');
   let root = host?.shadowRoot?.getElementById('deck-metrics-strip');
   if (!root) {
-    window.__agyCapsuleCleanup?.();
+    if (!childAnchor) window.__agyCapsuleCleanup?.();
     host?.remove();
     host = document.createElement('div');
-    host.id = 'agy-capsule-host';
-    host.style.display = 'contents';
+    if (childAnchor) {
+      host.setAttribute('data-agy-capsule-subagent', '');
+      host.style.cssText = 'display:block;align-self:center;width:100%;max-width:100%;box-sizing:border-box;flex:none;position:sticky;bottom:0;z-index:2';
+    } else {
+      host.id = 'agy-capsule-host';
+      host.style.display = 'contents';
+    }
     const shadow = host.attachShadow({ mode: 'open' });
     root = document.createElement('div');
     root.id = 'deck-metrics-strip';
@@ -251,6 +301,8 @@ function pageMount(d) {
         }
         #deck-metrics-strip .dk-q-pair[hidden] { display: none; }
         #deck-metrics-strip .dk-grp[hidden] { display: none; }
+        #deck-metrics-strip [data-el="childModel"] { display: block; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        #deck-metrics-strip [data-el="childModel"][hidden] { display: none; }
         #deck-metrics-strip [data-el="grpError"] .dk-pill,
         #deck-metrics-strip [data-el="grpError"] .dk-val,
         #deck-metrics-strip [data-el="grpError"] .dk-svg { color: #e06c75; }
@@ -371,6 +423,8 @@ function pageMount(d) {
         #deck-metrics-strip .dk-grp[data-pinned="true"] .dk-pop { display: block; pointer-events: auto; }
         #deck-metrics-strip[data-pinned] .dk-grp:not([data-pinned="true"]):hover .dk-pop { display: none; }
         #deck-metrics-strip .dk-grp[data-dismissed="true"] .dk-pop { display: none; }
+        #deck-metrics-strip .dk-grp .dk-pop[popover] { position: fixed; inset: auto; margin: 0; }
+        #deck-metrics-strip .dk-grp .dk-pop[popover]:not(:popover-open) { display: none; }
         /* Context Popover (matches plugin UI) */
         #deck-metrics-strip .dk-ctx-pop {
           width: 228px;
@@ -671,6 +725,7 @@ function pageMount(d) {
         #deck-metrics-strip .dk-item-pct { order: var(--agy-order-percent, 2); }
       </style>
 
+      ${childAnchor ? '<span class="dk-pill" data-el="childModel" hidden></span>' : ''}
       <!-- Context Capsule + Popover -->
       <div class="dk-grp" data-el="grpCtx">
         <button type="button" class="dk-pill" aria-expanded="false">
@@ -750,7 +805,9 @@ function pageMount(d) {
     `;
 
     // Only native layout integration stays outside the shadow boundary.
-    let nativeStyle = document.getElementById('agy-capsule-native-layout');
+    let nativeStyle = null;
+    if (!childAnchor) {
+    nativeStyle = document.getElementById('agy-capsule-native-layout');
     if (!nativeStyle) {
       nativeStyle = document.createElement('style');
       nativeStyle.id = 'agy-capsule-native-layout';
@@ -800,26 +857,39 @@ function pageMount(d) {
           flex-shrink: 0 !important;
         }
     `;
+    }
     root._dispose = () => {
       release(root);
-      nativeStyle.remove();
+      nativeStyle?.remove();
       host.remove();
       if (window.__agyCapsuleCleanup === root._dispose) delete window.__agyCapsuleCleanup;
     };
-    window.__agyCapsuleCleanup = root._dispose;
+    if (childAnchor) host._dispose = root._dispose;
+    else window.__agyCapsuleCleanup = root._dispose;
 
-    const closePinned = (dismiss = false) => {
+    const groups = [...root.querySelectorAll('.dk-grp')];
+    const overlays = childSidebar ? groups.map(grp => grp.querySelector('.dk-pop')) : [];
+    for (const pop of overlays) pop.popover = 'manual';
+    const closePinned = root._closePinned = (dismiss = false) => {
       const pinned = root._pinnedGroup;
       if (pinned) {
         pinned.removeAttribute('data-pinned');
         if (dismiss) pinned.dataset.dismissed = 'true';
         pinned.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
+        const pop = pinned.querySelector('.dk-pop');
+        if (pop.matches(':popover-open')) pop.hidePopover();
       }
       root._pinnedGroup = null;
       root.removeAttribute('data-pinned');
     };
     root._layoutPopovers = (grp = root._pinnedGroup || root.querySelector('.dk-grp:hover')) => {
-      const pop = grp?.querySelector('.dk-pop');
+      const pop = grp && !grp.hidden && !grp.dataset.dismissed && !root.classList.contains('dk-hide-all')
+        ? grp.querySelector('.dk-pop') : null;
+      // A sidebar strip sits in its own stacking context below the native
+      // composer. Only its panel needs to escape into the browser's top layer.
+      for (const overlay of overlays) {
+        if (overlay !== pop && overlay.matches(':popover-open')) overlay.hidePopover();
+      }
       if (!pop && root.dataset.panelLayout !== 'matched') {
         root._fitPanelHeights?.();
         return;
@@ -838,6 +908,7 @@ function pageMount(d) {
       const limit = `${Math.max(0, maxRight - minLeft)}px`;
       if (root.style.getPropertyValue('--dk-pop-max-width') !== limit) root.style.setProperty('--dk-pop-max-width', limit);
       root._fitPanelHeights?.();
+      if (pop && childSidebar && !pop.matches(':popover-open')) pop.showPopover();
       const width = pop?.getBoundingClientRect().width;
       if (!width) return;
       const pill = grp.querySelector('.dk-pill').getBoundingClientRect();
@@ -845,9 +916,10 @@ function pageMount(d) {
       const stripLeft = (firstGrp || root).getBoundingClientRect().left;
       let left = Math.max(stripLeft, pill.right - width);
       left = Math.max(minLeft, Math.min(left, maxRight - width));
-      pop.style.left = (left - grp.getBoundingClientRect().left) + 'px';
+      pop.style.left = (childSidebar ? left : left - grp.getBoundingClientRect().left) + 'px';
+      if (childSidebar) pop.style.bottom = (innerHeight - pill.top + 8) + 'px';
     };
-    for (const grp of root.querySelectorAll('.dk-grp')) {
+    for (const grp of groups) {
       grp.addEventListener('mouseenter', () => {
         root._refreshCacheTooltip?.();
         grp.removeAttribute('data-dismissed');
@@ -859,7 +931,10 @@ function pageMount(d) {
         if (root._pinnedGroup === grp) return;
         grp.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
         const pop = grp.querySelector('.dk-pop');
-        if (pop) pop.style.left = '';
+        if (pop) {
+          if (pop.matches(':popover-open')) pop.hidePopover();
+          pop.style.left = '';
+        }
       });
       grp.querySelector('.dk-pill').addEventListener('click', (event) => {
         event.stopPropagation();
@@ -868,6 +943,7 @@ function pageMount(d) {
         closePinned();
         if (wasPinned) {
           grp.dataset.dismissed = 'true';
+          root._layoutPopovers(grp);
         } else {
           grp.removeAttribute('data-dismissed');
           grp.dataset.pinned = 'true';
@@ -882,10 +958,11 @@ function pageMount(d) {
     root._onEscape = (event) => {
       if (event.key !== 'Escape') return;
       closePinned(true);
-      for (const grp of root.querySelectorAll('.dk-grp')) {
+      for (const grp of groups) {
         grp.dataset.dismissed = 'true';
         grp.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
       }
+      root._layoutPopovers();
     };
     document.addEventListener('click', root._onOutsideClick);
     document.addEventListener('keydown', root._onEscape);
@@ -898,18 +975,25 @@ function pageMount(d) {
     footerLeft.appendChild(host);
   }
   const labels = presentation.apply(root, d.prefs);
-  syncModelPicker(root, footerLeft, d.prefs, labels, findFooterLeft);
+  if (childAnchor) {
+    root.style.maxWidth = 'calc(100% - 12px)';
+    const model = root.querySelector('[data-el="childModel"]');
+    const modelName = d.subagent?.model || '';
+    model.hidden = !modelName;
+    if (model.textContent !== modelName) model.textContent = modelName;
+    model.title = labels.childRequestModel + ': ' + modelName;
+    root.querySelector('[data-el="grpCtx"]').hidden = !d.hasContext;
+  } else {
+    syncModelPicker(root, footerLeft, d.prefs, labels, findFooterLeft);
+  }
   presentation.renderContextTooltips(root, d.contextData, labels);
   const now = Date.now();
-  const cancelBtnVisible = !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
+  const cancelBtnVisible = !childAnchor && !!footerLeft.parentElement.querySelector('[data-testid="input-cancel-button"]');
   const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError, turnQueue: d.turnQueue }, d.prefs, labels, now, cancelBtnVisible || !!d.turnQueue?.hasPendingPlanner);
-  root.querySelector('[data-el="grpQuota"]').hidden = d.cloudPaygo;
-  if (root._pinnedGroup?.hidden) {
-    root._pinnedGroup.removeAttribute('data-pinned');
-    root._pinnedGroup.querySelector('.dk-pill').setAttribute('aria-expanded', 'false');
-    root._pinnedGroup = null;
-    root.removeAttribute('data-pinned');
-  }
+  root.querySelector('[data-el="grpQuota"]').hidden = !!childAnchor || d.cloudPaygo;
+  if (childAnchor) host.hidden = !alerts.visible && !d.hasContext && root.querySelector('[data-el="childModel"]').hidden;
+  if (childAnchor) host.style.display = host.hidden ? 'none' : 'block';
+  if (root._pinnedGroup?.hidden) root._closePinned();
   root._refreshCacheTooltip = () => {
     root.querySelector('[data-el="rowCacheHit"]').title = presentation.cacheTooltip(d.cache, labels, Date.now(), d.prefs);
   };
@@ -1074,7 +1158,7 @@ function pageMount(d) {
     return mt;
   };
   root._applyModelQuota = applyModelQuota;
-  const modelText = applyModelQuota();
+  const modelText = childAnchor ? '' : applyModelQuota();
 
   const getNativeVisualInfo = (el) => {
     let maxR = -Infinity;
@@ -1264,7 +1348,17 @@ function pageMount(d) {
     }
   };
   root._adjustLayout = () => {
-    adjustLayout();
+    if (childAnchor) {
+      root.classList.remove('dk-hide-all');
+      const model = root.querySelector('[data-el="childModel"]');
+      // Allow a readable ellipsis, but don't show a sliver of the model or
+      // clip the non-shrinking pills when the host splits the sidebar again.
+      if (!host.hidden && (root.scrollWidth > root.clientWidth + 1 ||
+          (!model.hidden && model.clientWidth < Math.min(24, model.scrollWidth)))) {
+        root._closePinned();
+        root.classList.add('dk-hide-all');
+      }
+    } else adjustLayout();
     root._layoutPopovers();
   };
   root._scheduleLayout = () => {
@@ -1293,8 +1387,10 @@ function pageMount(d) {
       if (root._applyModelQuota) root._applyModelQuota();
       root._scheduleLayout?.();
     });
-    obs.observe(footerLeft, { subtree: true, characterData: true, childList: true });
-    root._modelObserver = obs;
+    if (!childAnchor) {
+      obs.observe(footerLeft, { subtree: true, characterData: true, childList: true });
+      root._modelObserver = obs;
+    }
 
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(() => {
@@ -1351,12 +1447,14 @@ function pageMount(d) {
     quotaPop.innerHTML = d.quotaHtml;
   }
   presentation.apply(root, d.prefs);
-  applyModelQuota();
+  if (!childAnchor) applyModelQuota();
 
   root._fitPanelHeights = () => {
     // Only visible capsules participate in matched panel height.
     const errorPop = root.querySelector('.dk-error-pop');
-    const pops = [root.querySelector('.dk-ctx-pop')];
+    const contextPop = root.querySelector('.dk-ctx-pop');
+    const pops = contextPop.closest('.dk-grp').hidden ? [] : [contextPop];
+    if (!pops.length) contextPop.style.height = '';
     if (!quotaPop.closest('.dk-grp').hidden) pops.push(quotaPop);
     else quotaPop.style.height = '';
     if (errorPop && !errorPop.closest('.dk-grp').hidden) pops.push(errorPop);
@@ -1390,7 +1488,7 @@ function toView(d) {
   const cache = cacheView(d, d.prefs);
   const { iconSvg: cacheIconSvg, valColor: cacheValColor, valDeco: cacheValDeco, valOp: cacheValOp, text: valCacheHit, countdown: valCacheHitK, ctxIconColor, indicator: cacheIndicator, progressPct: cacheProgressPct, progressColor: cacheProgressColor } = cache;
 
-  const quotaGroups = quotaView(d.quotaGroups, d.prefs);
+  const quotaGroups = d.subagent ? [] : quotaView(d.quotaGroups, d.prefs);
   const quotaSummaryGroups = quotaGroups.map(({ title, rawName, modelsInGroup, q5h, qWk }) => ({ title, rawName, modelsInGroup, q5h, qWk }));
   const useBar = appearance(d.prefs).quotaIndicator === 'bar';
   let quotaHtml = '<div class="dk-panel-content">';
@@ -1412,6 +1510,8 @@ function toView(d) {
 
   quotaHtml += '</div>';
   return {
+    subagent: d.subagent,
+    hasContext: Number.isFinite(d.contextTokens) && d.contextTokens > 0 && Number.isFinite(d.maxContextTokens) && d.maxContextTokens > 0,
     prefs: d.prefs || { language: 'en' },
     generation: d.generation || null,
     turnSpeed: d.turnSpeed || null,
@@ -1465,25 +1565,77 @@ function installRuntime(owner, hash) {
   window.__deckOwnerTs = owner;
   let data = null;
   let dataPath = '';
+  let dataId = '';
+  let mainView = null;
+  let mainObserver;
   let disposed = false;
-  const run = () => {
-    if (disposed || !data) return;
-    if (globalThis.__agyCapsuleDeck !== api) return;
-    if (location.pathname !== dataPath) {
-      window.__agyCapsuleCleanup?.();
-      return;
+  const children = new Map();
+  const childHosts = new Map();
+  const removeChild = (anchor, entry) => {
+    entry.observer.disconnect();
+    entry.host._dispose?.();
+    childHosts.delete(anchor);
+  };
+  const sync = (render = false) => {
+    const footer = findFooterLeft();
+    const view = footer?.closest('[data-testid="conversation-view"]') ?? null;
+    const path = location.pathname;
+    const conversationId = conversationIdOf(view) || path.match(/\/c\/([0-9a-f-]{36})/i)?.[1] || '';
+    if (path !== dataPath) children.clear();
+    if (path !== dataPath || conversationId !== dataId) data = null;
+    dataPath = path;
+    dataId = conversationId;
+    if (view !== mainView) {
+      mainObserver?.disconnect();
+      if (view) {
+        mainObserver ??= new MutationObserver(() => sync());
+        mainObserver.observe(view, { attributes: true, attributeFilter: ['data-cascade-id'] });
+      }
+      mainView = view;
     }
     // Installed runtimes own the page; one-off legacy mounts must not strand
     // this runtime behind a newer timestamp while leaving two visible strips.
     window.__deckOwnerTs = owner;
-    pageMount(toView(data));
+    const anchors = findSubagentAnchors(footer);
+    const ids = new Set(anchors.values());
+    for (const id of children.keys()) if (!ids.has(id)) children.delete(id);
+    const snapshots = new Map(anchors);
+    const box = footer?.parentElement?.parentElement;
+    if (box && data?.subagent) snapshots.set(box, null);
+    for (const [anchor, entry] of childHosts) {
+      if (!snapshots.has(anchor) || snapshots.get(anchor) !== entry.id || !entry.host.isConnected) {
+        removeChild(anchor, entry);
+      }
+    }
+    if (!footer || !data || data.subagent) window.__agyCapsuleCleanup?.();
+    else if (render) pageMount(toView(data));
+    if (render) for (const [anchor, id] of snapshots) {
+      const next = id === null ? data : children.get(id);
+      const entry = childHosts.get(anchor);
+      if (!next?.subagent) {
+        if (entry) removeChild(anchor, entry);
+        continue;
+      }
+      pageMount(toView(next), anchor);
+      if (!entry) {
+        const host = anchor.querySelector(':scope > [data-agy-capsule-subagent]');
+        if (!host) continue;
+        const transcript = anchor.matches('[data-testid="subagent-tab-composer"]')
+          ? anchor.previousElementSibling : anchor.closest('[data-testid="conversation-view"]');
+        const observer = new MutationObserver(() => sync());
+        if (transcript) observer.observe(transcript, { attributes: true, attributeFilter: ['data-cascade-id'] });
+        if (anchor.parentElement) observer.observe(anchor.parentElement, { childList: true });
+        childHosts.set(anchor, { id, observer, host });
+      }
+    }
+    return { footer, conversationId, ids, hasKnownChildAnchor: [...anchors.keys()].some(el => el.matches('[data-testid="subagent-tab-composer"]')) };
   };
-  const timer = setInterval(run, 1000);
+  const timer = setInterval(() => sync(true), 1000);
   const api = {
     owner, hash,
     readState(caller) {
       if (caller < owner) return 'superseded';
-      const footer = findFooterLeft();
+      const { footer, conversationId, ids, hasKnownChildAnchor } = sync();
       let modelConversationId = null, modelFamilies = null;
       if (footer) {
         try {
@@ -1495,25 +1647,40 @@ function installRuntime(owner, hash) {
           }
         } catch {}
       }
-      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies };
+      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies,
+        conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], loadedSubagentIds: [...children.keys()] };
     },
-    readCloudTelemetry(caller, convId) {
+    readCloudTelemetry(caller, path, convId) {
       if (caller < owner) return 'superseded';
-      if (!convId || typeof convId !== 'string') return null;
+      if (caller !== owner || disposed || path !== location.pathname || !convId) return false;
+      const { footer, conversationId } = sync();
+      if (!footer || conversationId !== convId) return false;
+      if (conversationIdOf(footer.closest('[data-testid="conversation-view"]')) !== convId) return null;
       try { return readCloudTrajectory(convId); } catch { return null; }
     },
-    apply(next, path, caller) {
+    apply(next, path, caller, id) {
       if (caller < owner) return 'superseded';
       if (caller !== owner || disposed || path !== location.pathname) return false;
+      const current = sync();
+      if (id !== undefined && (!current.footer || current.conversationId !== id)) return false;
       data = next;
-      dataPath = path;
-      run();
+      sync(true);
+      return true;
+    },
+    applySubagent(next, path, caller, id) {
+      if (caller < owner) return 'superseded';
+      if (caller !== owner || disposed || path !== location.pathname || !sync().ids.has(id)) return false;
+      if (next?.subagent) children.set(id, next);
+      else children.delete(id);
+      sync(true);
       return true;
     },
     dispose() {
       if (disposed) return;
       disposed = true;
       clearInterval(timer);
+      mainObserver?.disconnect();
+      for (const [anchor, entry] of childHosts) removeChild(anchor, entry);
       if (globalThis.__agyCapsuleDeck === api) {
         window.__agyCapsuleCleanup?.();
         delete globalThis.__agyCapsuleDeck;
@@ -1525,7 +1692,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, resolveInheritedLabel, readPickerState, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const source = getPresentationScript() + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
   const code = `(()=>{const INSTANCE_TS=${Number(owner)};if(globalThis.__agyCapsuleDeck?.owner>INSTANCE_TS)return 'superseded';${getPresentationScript()}\nconst {escapeHtml,appearance,cacheView,contextBreakdown,quotaView,makeRingSvg}=globalThis.__agyCapsulePresentation;\n${functions}\nreturn installRuntime(INSTANCE_TS,${JSON.stringify(hash)});})()`;
@@ -1708,30 +1875,57 @@ export function startDeckInjector(inspect, options = {}) {
             if (installed === 'superseded') return await supersede();
             if (!installed || stopped) { failed++; continue; }
             entry.lastPayload = '';
+            entry.lastChildPayloads = new Map();
             state = await run(`globalThis.__agyCapsuleDeck?.readState(${owner})??null`);
           }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || !state.path) { failed++; continue; }
-          if (state.hasFooter !== true) { noAnchor++; continue; }
-          const match = state.path.match(/\/c\/([0-9a-f-]{36})/);
-          if (match && state.modelConversationId === match[1] && Array.isArray(state.modelFamilies) && state.modelFamilies.length > 0) {
-            nextModels.set(match[1], state.modelFamilies);
-          }
-          if (match && options.needsCloudTelemetry?.(match[1])) {
-            const cloud = await run(`globalThis.__agyCapsuleDeck?.readCloudTelemetry(${owner},${JSON.stringify(match[1])})??null`);
-            if (cloud === 'superseded') return await supersede();
-            if (cloud) options.onCloudTelemetry?.(match[1], cloud);
+          const childIds = Array.isArray(state.subagentIds) ? state.subagentIds.filter(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) : [];
+          if (state.hasFooter !== true && !childIds.length) { noAnchor++; continue; }
+          const mainId = state.conversationId || state.path.match(/\/c\/([0-9a-f-]{36})/i)?.[1] || '';
+          if (mainId && state.modelConversationId === mainId && Array.isArray(state.modelFamilies) && state.modelFamilies.length > 0) {
+            nextModels.set(mainId, state.modelFamilies);
           }
           // Data-source failures belong to the sidebar health path, not to CDP.
-          const data = await Promise.resolve().then(() => inspect(match ? match[1] : '', true)).catch(() => null);
-          if (!data || data.error || stopped) continue;
-          const payload = JSON.stringify(data);
-          if (entry.lastPayload !== payload || entry.lastPath !== state.path) {
-            const applied = await run(`globalThis.__agyCapsuleDeck?.apply(${payload},${JSON.stringify(state.path)},${owner})??false`);
-            if (applied === 'superseded') return await supersede();
-            if (applied) { entry.lastPayload = payload; entry.lastPath = state.path; }
-            else { entry.lastPayload = ''; failed++; }
+          let pageFailed = false;
+          if (state.hasFooter === true) {
+            if (mainId && options.needsCloudTelemetry?.(mainId)) {
+              const cloud = await run(`globalThis.__agyCapsuleDeck?.readCloudTelemetry(${owner},${JSON.stringify(state.path)},${JSON.stringify(mainId)})`);
+              if (cloud === 'superseded') return await supersede();
+              if (stopped) break;
+              if (entry.closed || context !== entry.context || cloud === false) continue;
+              if (cloud === null || cloud?.conversationId === mainId) options.onCloudTelemetry?.(mainId, cloud);
+            }
+            const data = await Promise.resolve().then(() => inspect(mainId, true)).catch(() => null);
+            if (data && !data.error && !stopped) {
+              const payload = JSON.stringify(data);
+              if (entry.lastPayload !== payload || entry.lastPath !== state.path || entry.lastConversationId !== mainId || state.loadedMain === false) {
+                const applied = await run(`globalThis.__agyCapsuleDeck?.apply(${payload},${JSON.stringify(state.path)},${owner},${JSON.stringify(mainId)})??false`);
+                if (applied === 'superseded') return await supersede();
+                if (applied) { entry.lastPayload = payload; entry.lastPath = state.path; entry.lastConversationId = mainId; }
+                else { entry.lastPayload = ''; pageFailed = true; }
+              }
+            }
           }
+          const childPayloads = entry.lastChildPayloads ??= new Map();
+          const loaded = new Set(state.loadedSubagentIds);
+          let hasChild = state.hasKnownChildAnchor === true;
+          for (const id of childPayloads.keys()) if (!childIds.includes(id)) childPayloads.delete(id);
+          for (const id of childIds) {
+            const result = await Promise.resolve().then(() => inspect(id, true, true)).catch(() => null);
+            if (stopped) break;
+            const child = result?.subagent && !result.error ? result : null;
+            if (child) hasChild = true;
+            const payload = JSON.stringify(child);
+            if (child ? loaded.has(id) && childPayloads.get(id) === payload : !loaded.has(id)) continue;
+            const applied = await run(`globalThis.__agyCapsuleDeck?.applySubagent(${payload},${JSON.stringify(state.path)},${owner},${JSON.stringify(id)})??false`);
+            if (applied === 'superseded') return await supersede();
+            if (applied) childPayloads.set(id, payload);
+            // A child tab can close while its DB is being read. Its stale
+            // response is rejected without counting as an injector failure.
+          }
+          if (state.hasFooter !== true && !hasChild) noAnchor++;
+          if (pageFailed) failed++;
           lastErr = '';
         } catch (error) {
           if (stopped) return;

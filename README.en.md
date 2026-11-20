@@ -57,6 +57,8 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 - **Hide default effort**: Hides effort previews in the model dropdown list (the footer button and hover effort submenu still show tiers, and direct clicks still inherit your current effort).
 - **Customize models**: Expands the list of models discovered from the host so you can toggle individual models on or off (at least one model always remains visible).
 
+Subagent conversations show the model used in their last request (read-only), context usage, and request alerts. Each capsule stays hidden when its own data is unavailable; it never substitutes data from the parent conversation.
+
 ## Language and appearance
 
 - **Settings language**: English, Simplified Chinese, Traditional Chinese. The language of the settings page.
@@ -147,6 +149,14 @@ node --test "test/*.test.mjs"
 ```
 
 Browser regression tests are optional. With Playwright and Chromium installed, run `node test/browser-regressions.mjs` separately.
+
+## Next stops
+
+Directions we may explore later, with no committed timeline:
+
+- **Sub-agent turn metrics**: Count each sub-agent execution as a turn to show turn duration, request count, and token totals.
+- **More effort bar styles**: Offer more optional effort bar looks for the model capsule, keeping the current style as the default.
+- **WSL, SSH, and cloud projects**: Show capsules in WSL and SSH remote windows and in cloud project conversations. Their data is not stored on this computer yet, so the capsules cannot appear there for now.
 
 ## Contributing
 
