@@ -16,7 +16,7 @@ import { installAsyncHostRoutes, installEpipeGuard } from './host_bridge.mjs';
 import { createCdpNoticeManager } from './cdp_notice.mjs';
 
 const settingsStore = createSettingsStore();
-const PANEL_VERSION = 121;
+const PANEL_VERSION = 125;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1133,20 +1133,39 @@ const UI_HTML = `<!DOCTYPE html>
     .cdp-notice summary { cursor: pointer; color: var(--foreground, #ebebeb); }
     .cdp-notice ol { margin: 5px 0 0; padding-left: 18px; display: grid; gap: 4px; }
     .cdp-notice code { user-select: text; font-family: ui-monospace, Consolas, monospace; font-size: 11px; padding: 0 3px; border-radius: 3px; background: color-mix(in srgb, var(--foreground, #ebebeb) 8%, transparent); color: var(--foreground, #ebebeb); word-break: break-all; }
-    .setting-model-grid { display: grid; grid-template-columns: auto auto; justify-content: start; align-items: center; column-gap: 14px; row-gap: 6px; }
+    .setting-model-card { container-type: inline-size; container-name: model-card; }
+    .setting-model-grid { display: grid; grid-template-columns: repeat(2, auto); justify-content: start; align-items: center; column-gap: 14px; row-gap: 6px; }
     .setting-model-grid .setting-pair-item > label { font-size: 13px; color: var(--foreground, #ebebeb); min-width: 0; }
-    .setting-model-grid .setting-preview { padding: 0; }
-    .pv-mp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 11.5px; transition: opacity .18s ease; }
+    @container model-card (min-width: 520px) { .setting-model-grid { grid-template-columns: repeat(3, auto); } }
+    @container model-card (min-width: 680px) { .setting-model-grid { grid-template-columns: repeat(4, auto); } }
+    @container model-card (min-width: 840px) { .setting-model-grid { grid-template-columns: repeat(5, auto); } }
+    @container model-card (min-width: 960px) { .setting-model-grid { grid-template-columns: repeat(6, auto); } }
+    @container model-card (min-width: 380px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(3, auto); } }
+    @container model-card (min-width: 510px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(4, auto); } }
+    @container model-card (min-width: 640px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(5, auto); } }
+    @container model-card (min-width: 740px) { #sidebar-settings[lang^="zh"] .setting-model-grid { grid-template-columns: repeat(6, auto); } }
+    .pv-mp { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 11.5px; transition: opacity .18s ease; }
+    .pv-mp-capsule { display: inline-flex; align-items: center; gap: 6px; flex-shrink: 0; }
     .pv-mp-bubble { width: 20px; height: 20px; border-radius: 999px; display: inline-grid; place-items: center; background: var(--secondary, rgba(142,142,147,.16)); color: var(--muted-foreground, #8e8e93); font-size: 12px; transition: opacity .18s ease, width .18s ease, margin .18s ease; overflow: hidden; }
     .pv-mp-pill { gap: 4px; padding: 2px 7px; }
     .pv-mp-name { color: var(--foreground, #ebebeb); }
     .pv-mp-effort { color: var(--muted-foreground, #8e8e93); }
+    .pv-mp-row { display: inline-flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 6px 2px 8px; border-radius: 6px; border: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.28)) 85%, transparent); background: var(--card, color-mix(in srgb, var(--foreground, #ebebeb) 4%, var(--background, #141414))); box-shadow: 0 1px 2.5px rgba(0, 0, 0, .08); color: var(--foreground, #ebebeb); white-space: nowrap; }
+    .pv-mp-row-main { display: inline-flex; align-items: center; min-width: 0; }
+    .pv-mp-row-name { color: var(--foreground, #ebebeb); }
+    .pv-mp-row-effort { display: inline-block; overflow: hidden; white-space: nowrap; max-width: 40px; margin-left: 5px; opacity: .75; color: var(--muted-foreground, #8e8e93); transition: max-width .2s ease, opacity .18s ease, margin-left .2s ease; }
+    .pv-mp-row-tag { display: inline-flex; align-items: center; overflow: hidden; white-space: nowrap; max-width: 44px; margin-left: 5px; padding: 0 5px; border-radius: 999px; background: var(--secondary, rgba(142,142,147,.16)); color: var(--muted-foreground, #8e8e93); font-size: 10px; line-height: 15px; transition: max-width .2s ease, opacity .18s ease, margin-left .2s ease, padding .2s ease; }
+    .pv-mp-row-chev { display: inline-flex; align-items: center; color: var(--muted-foreground, #8e8e93); opacity: .75; flex-shrink: 0; }
+    .pv-mp-row-chev svg { width: 12px; height: 12px; display: block; }
     [data-setting-card="modelEffortPicker"][data-checked="false"] .pv-mp { opacity: .4; }
     [data-setting-card="modelEffortPicker"][data-keep-native="false"] .pv-mp-bubble { width: 0; opacity: 0; margin-right: -6px; }
-    .pv-model-list { display: flex; flex-direction: column; gap: 5px; padding-top: 4px; }
+    [data-setting-card="modelEffortPicker"][data-hide-default-effort="true"] .pv-mp-row-effort { max-width: 0; opacity: 0; margin-left: 0; }
+    [data-setting-card="modelEffortPicker"][data-hide-model-tags="true"] .pv-mp-row-tag { max-width: 0; opacity: 0; margin-left: 0; padding-left: 0; padding-right: 0; }
+    .pv-model-list { display: flex; flex-wrap: wrap; gap: 5px; padding-top: 4px; }
     [data-setting-card="modelEffortPicker"]:not([data-customize-models="true"]) .pv-model-list { display: none; }
     .pv-model-list:empty { display: none; }
-    .pv-model-item { width: 100%; justify-content: flex-start; padding: 5px 10px; font-size: 12px; text-align: left; }
+    .pv-model-item { width: auto; max-width: 100%; min-height: 22px; justify-content: center; padding: 2px 9px; border-radius: 999px; font-size: 11.5px; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .pv-model-item[data-active="true"] { border-color: #4ea84e; background: color-mix(in srgb, #4ea84e 14%, var(--card, #222225)); }
     .pv-model-empty { font-size: 11.5px; color: var(--muted-foreground, #8e8e93); padding: 2px 2px 0; }
     @media(pointer:coarse) { .pv-swatch { min-height: 40px; } }
   </style>
@@ -1272,7 +1291,7 @@ const UI_HTML = `<!DOCTYPE html>
     ])}
 
     <div class="settings-scope" data-settings-scope="features" data-i18n="featuresSection"></div>
-    <div class="setting-card setting-model-card" data-setting-card="modelEffortPicker" data-checked="${DEFAULT_SETTINGS.modelEffortPicker}" data-keep-native="${DEFAULT_SETTINGS.keepNativeModelEntry}" data-customize-models="false">
+    <div class="setting-card setting-model-card" data-setting-card="modelEffortPicker" data-checked="${DEFAULT_SETTINGS.modelEffortPicker}" data-keep-native="${DEFAULT_SETTINGS.keepNativeModelEntry}" data-hide-model-tags="${DEFAULT_SETTINGS.hideModelTags}" data-hide-default-effort="${DEFAULT_SETTINGS.hideDefaultEffort}" data-customize-models="false">
       <div class="setting-model-grid">
         <div class="setting-pair-item">
           <label class="setting-check">
@@ -1298,17 +1317,29 @@ const UI_HTML = `<!DOCTYPE html>
             <span data-i18n="hideDefaultEffort"></span>
           </label>
         </div>
-        <div class="setting-preview" aria-hidden="true">
-          <div class="pv-mp">
-            <span class="pv-mp-bubble">⋯</span>
-            <span class="pv-pill pv-mp-pill"><span class="pv-mp-name">Argon</span><span class="pv-mp-effort">High</span></span>
-          </div>
-        </div>
         <div class="setting-pair-item" data-setting-card="customizeModelList" data-checked="${DEFAULT_SETTINGS.customizeModelList}" data-parent-off="${!DEFAULT_SETTINGS.modelEffortPicker}">
           <label class="setting-check">
             <input id="setting-customize-model-list" name="customizeModelList" type="checkbox"${DEFAULT_SETTINGS.customizeModelList ? ' checked' : ''} />
             <span data-i18n="customizeModelList"></span>
           </label>
+        </div>
+        <div class="setting-pair-item" data-setting-card="expandModelList" data-checked="false" data-parent-off="true">
+          <label class="setting-check">
+            <input id="setting-expand-model-list" type="checkbox" data-ui-toggle="expandModelList" />
+            <span data-i18n="expandModelList"></span>
+          </label>
+        </div>
+      </div>
+      <div class="setting-preview" aria-hidden="true">
+        <div class="pv-mp">
+          <span class="pv-mp-capsule">
+            <span class="pv-mp-bubble">⋯</span>
+            <span class="pv-pill pv-mp-pill"><span class="pv-mp-name">Argon</span><span class="pv-mp-effort">High</span></span>
+          </span>
+          <span class="pv-mp-row">
+            <span class="pv-mp-row-main"><span class="pv-mp-row-name">Gemini 4 Argon</span><span class="pv-mp-row-effort">High</span><span class="pv-mp-row-tag">New</span></span>
+            <span class="pv-mp-row-chev"><svg viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M504-480 320-664l56-56 240 240-240 240-56-56 184-184Z"/></svg></span>
+          </span>
         </div>
       </div>
       <div class="pv-model-list" id="setting-model-list" data-toggle-setting="hiddenModels" role="group"></div>
@@ -1475,6 +1506,7 @@ const UI_HTML = `<!DOCTYPE html>
     document.addEventListener('keydown', event => {
       if (event.key === 'Escape') for (const setting of document.querySelectorAll('.metric-setting')) setting.dataset.helpDismissed = 'true';
     });
+    let expandModelList = false;
     function applySettings(next, forceInputs = false) {
       prefs = { ...prefs, ...next };
       labels = presentation.apply(document.body, prefs);
@@ -1484,8 +1516,9 @@ const UI_HTML = `<!DOCTYPE html>
       document.getElementById('sidebar-tab-stats').textContent = settingsLabels.sidebarStats;
       document.getElementById('sidebar-tab-settings').textContent = settingsLabels.sidebarSettings;
       document.getElementById('sidebar-stats').lang = document.body.dataset.language;
+      document.getElementById('sidebar-settings').lang = prefs.settingsLanguage;
       for (const select of document.querySelectorAll('.settings select[name]')) select.value = prefs[select.name];
-      for (const checkbox of document.querySelectorAll('.settings input[type="checkbox"]')) {
+      for (const checkbox of document.querySelectorAll('.settings input[type="checkbox"][name]')) {
         const checked = prefs[checkbox.name] === true;
         checkbox.checked = checked;
         const card = checkbox.closest('[data-setting-card]');
@@ -1514,12 +1547,21 @@ const UI_HTML = `<!DOCTYPE html>
       const modelPickerCard = document.querySelector('[data-setting-card="modelEffortPicker"]');
       if (modelPickerCard) {
         modelPickerCard.dataset.keepNative = String(prefs.keepNativeModelEntry !== false);
-        modelPickerCard.dataset.customizeModels = String(prefs.modelEffortPicker === true && prefs.customizeModelList === true);
+        modelPickerCard.dataset.hideModelTags = String(prefs.hideModelTags === true);
+        modelPickerCard.dataset.hideDefaultEffort = String(prefs.hideDefaultEffort === true);
+        modelPickerCard.dataset.customizeModels = String(prefs.modelEffortPicker === true && prefs.customizeModelList === true && expandModelList === true);
       }
       for (const subKey of ['keepNativeModelEntry', 'hideModelTags', 'hideDefaultEffort', 'customizeModelList']) {
         const subCard = document.querySelector('[data-setting-card="' + subKey + '"]');
         if (subCard) subCard.dataset.parentOff = String(prefs.modelEffortPicker !== true);
       }
+      const expandModelCard = document.querySelector('[data-setting-card="expandModelList"]');
+      if (expandModelCard) {
+        expandModelCard.dataset.checked = String(expandModelList === true);
+        expandModelCard.dataset.parentOff = String(prefs.modelEffortPicker !== true || prefs.customizeModelList !== true);
+      }
+      const expandModelInput = document.getElementById('setting-expand-model-list');
+      if (expandModelInput) expandModelInput.checked = expandModelList === true;
       renderModelList();
       for (const card of document.querySelectorAll('.setting-option-card')) card.dataset.layout = prefs[card.dataset.layoutKey] === 'rows' ? 'rows' : 'columns';
       const contextPreview = document.querySelector('[data-preview-group="context"]');
@@ -1637,6 +1679,10 @@ const UI_HTML = `<!DOCTYPE html>
       });
     }
     var modelListSig = '';
+    function formatModelListName(name) {
+      const short = String(name || '').replace(/^(?:Gemini|Claude)\\s+/i, '').trim();
+      return short || String(name || '');
+    }
     function renderModelList() {
       const box = document.getElementById('setting-model-list');
       if (!box) return;
@@ -1657,15 +1703,24 @@ const UI_HTML = `<!DOCTYPE html>
       const hiddenSet = new Set(hidden);
       for (const name of all) {
         const active = !hiddenSet.has(name);
+        const short = formatModelListName(name);
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'pv-swatch pv-model-item';
         btn.dataset.modelToggle = name;
         btn.dataset.active = String(active);
         btn.setAttribute('aria-pressed', String(active));
-        btn.textContent = name;
+        btn.textContent = short;
+        if (short !== name) btn.title = name;
         box.append(btn);
       }
+    }
+    const expandModelToggle = document.getElementById('setting-expand-model-list');
+    if (expandModelToggle) {
+      expandModelToggle.addEventListener('change', () => {
+        expandModelList = expandModelToggle.checked;
+        applySettings(prefs);
+      });
     }
     const modelListEl = document.getElementById('setting-model-list');
     if (modelListEl) {
@@ -1973,7 +2028,8 @@ const UI_HTML = `<!DOCTYPE html>
         const modelCard = control.closest('.setting-model-card');
         const parentDisabled = (control.name === 'speedAnimation' && prefs.showSpeed === false)
           || (['keepNativeModelEntry', 'hideModelTags', 'hideDefaultEffort', 'customizeModelList'].includes(control.name) && prefs.modelEffortPicker !== true)
-          || (!!modelCard && !control.closest('.setting-pair-item') && (prefs.modelEffortPicker !== true || prefs.customizeModelList !== true))
+          || (control.dataset.uiToggle === 'expandModelList' && (prefs.modelEffortPicker !== true || prefs.customizeModelList !== true))
+          || (!!modelCard && !control.closest('.setting-pair-item') && (prefs.modelEffortPicker !== true || prefs.customizeModelList !== true || !expandModelList))
           || (!!optionCard && !control.closest('.setting-pair-item') && optionCard.dataset.checked === 'false')
           || (!!thresholdCard && !control.closest('.setting-pair-item') && thresholdCard.dataset.checked === 'false')
           || (!!detailPop && detailPop.dataset.open === 'false');

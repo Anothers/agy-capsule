@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readPickerState, resolveInheritedLabel } from '../agy-capsule/sidecars/agy_capsule/model_picker.mjs';
 import { DEFAULT_SETTINGS, normalizeSettings } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
+import { UI_HTML } from '../agy-capsule/sidecars/agy_capsule/server.mjs';
+import { createPresentation } from '../agy-capsule/sidecars/agy_capsule/ui.mjs';
 
 function host(id) {
   const current = { label: 'First (Low)' };
@@ -110,4 +112,24 @@ test('keepNativeModelEntry, hideModelTags, hideDefaultEffort, customizeModelList
   assert.equal(normalized.hideDefaultEffort, true);
   assert.equal(normalized.customizeModelList, true);
   assert.deepEqual(normalized.hiddenModels, ['Gemini 3.8 Flash', 'GPT-OSS 120B (Medium)']);
+});
+
+test('model picker settings card uses responsive grid, default-off expand toggle, and unified row preview', () => {
+  const { dictionaries } = createPresentation();
+  assert.equal(dictionaries['zh-CN'].expandModelList, '展开列表');
+  assert.equal(dictionaries['zh-TW'].expandModelList, '展開清單');
+  assert.equal(dictionaries.en.expandModelList, 'Expand list');
+
+  assert.match(UI_HTML, /@container model-card/);
+  assert.match(UI_HTML, /id="setting-expand-model-list"[^>]*data-ui-toggle="expandModelList"/);
+  assert.doesNotMatch(UI_HTML, /id="setting-expand-model-list"[^>]*\bchecked\b/);
+  assert.match(UI_HTML, /data-hide-model-tags=/);
+  assert.match(UI_HTML, /data-hide-default-effort=/);
+  assert.match(UI_HTML, /class="pv-mp-row"/);
+  assert.match(UI_HTML, /class="pv-mp-row-effort"/);
+  assert.match(UI_HTML, /class="pv-mp-row-tag"/);
+  assert.match(UI_HTML, /prefs\.modelEffortPicker === true && prefs\.customizeModelList === true && expandModelList === true/);
+  assert.match(UI_HTML, /\.pv-model-list\s*\{\s*display:\s*flex;\s*flex-wrap:\s*wrap;/);
+  assert.match(UI_HTML, /function formatModelListName\(name\)/);
+  assert.match(UI_HTML, /\(\?:Gemini\|Claude\)\\s\+/);
 });
