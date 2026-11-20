@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { UI_HTML } from '../agy-capsule/sidecars/agy_capsule/server.mjs';
 import { DEFAULT_SETTINGS } from '../agy-capsule/sidecars/agy_capsule/settings.mjs';
 import { buildRuntimeBundle, startDeckInjector } from '../agy-capsule/sidecars/agy_capsule/deck_injector.mjs';
+import { readCloudConversationSnapshot } from '../agy-capsule/sidecars/agy_capsule/cloud_telemetry.mjs';
 import { hostFixture } from './cdp-host-fixture.mjs';
 
 const { chromium } = createRequire(import.meta.url)(process.argv[2] || 'playwright');
@@ -133,6 +134,41 @@ await test('Cloud-only timing suppression leaves no space and clears when local 
   await waitForRows(pop, 'visible');
   await waitForRows(panel, 'visible');
   assert.equal(await speed.textContent(), '100.0 tok/s');
+
+  // Exercise the opt-in using a real renderer read, then remove only the reported timing.
+  const id = '11111111-1111-1111-1111-111111111111';
+  await deck.locator('main').evaluate((main, id) => {
+    main.dataset.cascadeId = id;
+    document.body.firstElementChild.__reactContainer$fixture = { memoizedProps: { trajectorySlice: {
+      conversationId: id, metadata: {}, totalStepsLength: 2,
+      stepsInSlice: [{ type: 14, status: 3 }, { type: 15, status: 3, metadata: {
+        modelUsage: { inputTokens: 128000, outputTokens: 90 }, modelInfo: { maxTokens: 256000 },
+      } }],
+      totalGeneratorMetadataLength: 4, generatorMetadataSlice: { startIndex: -1 },
+      generatorMetadatasInSlice: [{ stepIndices: [1], metadata: { case: 'chatModel', value: {
+        timeToFirstToken: { seconds: 1 }, streamingDuration: { seconds: 2 },
+      } } }],
+    } } };
+  }, id);
+  const read = async () => readCloudConversationSnapshot(await deck.evaluate(({ owner, id }) =>
+    window.__agyCapsuleDeck.readCloudTelemetry(owner, location.pathname, id), { owner, id }));
+  panelData = { ...local, ...await read() };
+  assert.equal(await apply(deck, panelData), true);
+  await speed.waitFor({ state: 'visible' });
+  assert.equal(await speed.textContent(), '30.0 tok/s');
+  await ctx.click();
+  await waitForRows(pop, 'visible');
+  await panel.locator('[data-generation="speed"]').filter({ hasText: '30.0 tok/s' }).waitFor({ state: 'visible', timeout: 4000 });
+  assert.match(await pop.locator('[data-generation="timing"]').getAttribute('title'), /TTFT 1/);
+
+  await deck.locator('main').evaluate(main => {
+    main.__reactContainer$fixture.memoizedProps.trajectorySlice.generatorMetadatasInSlice[0].metadata = {};
+  });
+  panelData = { ...local, ...await read() };
+  assert.equal(await apply(deck, panelData), true);
+  await speed.waitFor({ state: 'hidden' });
+  await waitForRows(pop, 'hidden');
+  await waitForRows(panel, 'hidden');
 });
 
 await test('A wider side-question composer never takes the main footer capsule', async t => {

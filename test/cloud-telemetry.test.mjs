@@ -7,6 +7,100 @@ import {
   createCloudTelemetryStore,
 } from '../agy-capsule/sidecars/agy_capsule/cloud_telemetry.mjs';
 
+const cloudId = 'timed-cloud';
+const modelStep = { type: 15, status: 3, metadata: {
+  executionId: 'request', modelUsage: { inputTokens: 1000, outputTokens: 90, responseOutputTokens: 90 },
+  modelInfo: { maxTokens: 10000 }, createdAt: { seconds: 10 }, viewableAt: { seconds: 11 },
+  finishedGeneratingAt: { seconds: 17 }, completedAt: { seconds: 17 },
+} };
+const userStep = { type: 14, status: 3, metadata: { createdAt: { seconds: 9 } } };
+const toolStep = { type: 21, status: 3, metadata: { createdAt: { seconds: 17 } } };
+const chatModel = (idx, overrides = {}) => ({ stepIndices: [idx], executionId: 'request', metadata: {
+  case: 'chatModel', value: { timeToFirstToken: { seconds: 1n, nanos: 250_000_000 },
+    streamingDuration: { seconds: '2', nanos: 250_000_000 }, ...overrides },
+} });
+const readFixture = (overrides = {}) => {
+  const trajectorySlice = { conversationId: cloudId, metadata: {}, totalStepsLength: 3,
+    stepsInSlice: [userStep, modelStep, toolStep], totalGeneratorMetadataLength: 12,
+    generatorMetadataSlice: { startIndex: -1 }, generatorMetadatasInSlice: [chatModel(1)], ...overrides };
+  const root = { __reactContainer$fixture: { memoizedProps: { trajectorySlice } } };
+  return vm.runInNewContext(`(${readCloudTrajectory.toString()})`, { document: { getElementById: () => root } })(cloudId);
+};
+
+test('cloud timing uses the last linked generator request, with the SQLite TPS formula', () => {
+  const raw = readFixture({ generatorMetadatasInSlice: [chatModel(1, { usage: {
+    outputTokens: 140n, responseOutputTokens: 90n, thinkingOutputTokens: 50n,
+  } })] });
+  const snapshot = readCloudConversationSnapshot(raw);
+  assert.equal(snapshot.requestTimingAvailable, true);
+  assert.deepEqual(snapshot.generation, { requestIndex: 1, ttft: 1.25, streaming: 2.25,
+    duration: 3.5, output: 140, reply: 90, thinking: 50, tps: 40 });
+  assert.deepEqual(snapshot.turnSpeed.generation, snapshot.generation);
+  assert.equal(snapshot.contextTokens, 1000);
+  assert.equal(snapshot.turnMetrics.requestCount, 1);
+  assert.equal(snapshot.turnMetrics.duration, null);
+  assert.deepEqual(snapshot.turnQueue.waits, [1], 'request timing does not replace step-based turn accounting');
+
+  const unavailable = [
+    { generatorMetadatasInSlice: [{ stepIndices: [1], metadata: { case: undefined } }] },
+    { generatorMetadatasInSlice: [chatModel(0)] },
+    { generatorMetadataSlice: { startIndex: 0 } },
+    { generatorMetadatasInSlice: [{ ...chatModel(1), executionId: 'other' }] },
+    { generatorMetadataSlice: { startIndex: -2 }, generatorMetadatasInSlice: [chatModel(1), { stepIndices: [], metadata: {} }] },
+    { stepsInSlice: [userStep, modelStep, { type: 15, status: 2 }], generatorMetadatasInSlice: [chatModel(1)] },
+    { stepsInSlice: [userStep, modelStep, userStep], generatorMetadatasInSlice: [chatModel(1)] },
+  ];
+  for (const fixture of unavailable) {
+    const data = readCloudConversationSnapshot(readFixture(fixture));
+    assert.equal(data.requestTimingAvailable, false);
+    assert.equal(data.generation.tps, null);
+  }
+});
+
+test('cloud Duration accepts omitted zero components, not missing, zero or malformed timings', () => {
+  for (const invalid of [undefined, {}, { seconds: 0, nanos: 0 }, { seconds: -1 }, { nanos: -1 },
+    { seconds: 1, nanos: 1e9 }, { seconds: 'NaN', nanos: 1 }, { seconds: 0.5 }, { seconds: 86_400 }]) {
+    for (const key of ['timeToFirstToken', 'streamingDuration']) {
+      const read = readFixture({ generatorMetadatasInSlice: [chatModel(1, { [key]: invalid })] });
+      const snapshot = readCloudConversationSnapshot(read);
+      assert.equal(snapshot.requestTimingAvailable, false, key);
+      assert.equal(snapshot.generation.ttft, null);
+    }
+  }
+  const read = readFixture({ generatorMetadatasInSlice: [chatModel(1, {
+    timeToFirstToken: { nanos: 500_000_000 }, streamingDuration: { seconds: '2' },
+  })] });
+  const snapshot = readCloudConversationSnapshot(read);
+  assert.equal(snapshot.requestTimingAvailable, true);
+  assert.equal(snapshot.generation.ttft, 0.5);
+  assert.equal(snapshot.generation.streaming, 2);
+  assert.equal(snapshot.generation.tps, 36);
+});
+
+test('a truncated step tail with linked timing exposes the request, never a whole turn', () => {
+  const tail = { totalStepsLength: 10, stepsSlice: { startIndex: -2 }, stepsInSlice: [modelStep, toolStep] };
+  const snapshot = readCloudConversationSnapshot(readFixture({ ...tail, generatorMetadatasInSlice: [chatModel(8)] }));
+  assert.equal(snapshot.requestTimingAvailable, true);
+  assert.equal(snapshot.generation.requestIndex, 8);
+  assert.equal(snapshot.turnSpeed.generation.duration, 3.5);
+  assert.equal(snapshot.turnMetrics, null);
+  assert.equal(snapshot.turnQueue, null);
+  assert.equal(snapshot.contextTokens, undefined);
+  const unmeasured = readCloudConversationSnapshot(readFixture({ ...tail, generatorMetadatasInSlice: [chatModel(7)] }));
+  assert.equal(unmeasured.requestTimingAvailable, false, 'no unrelated timing');
+  assert.equal(unmeasured.turnSpeed, null);
+  assert.equal(unmeasured.turnMetrics, null);
+  assert.equal(readFixture({ ...tail, stepsSlice: { startIndex: 0 }, generatorMetadatasInSlice: [chatModel(1)] }), null,
+    'a retained prefix does not prove the latest request');
+});
+
+test('a known cloud conversation stays timing-hidden before the first measured request', () => {
+  const raw = readFixture({ stepsInSlice: [userStep, { type: 15, status: 2 }, toolStep] });
+  const snapshot = readCloudConversationSnapshot(raw);
+  assert.equal(snapshot.requestTimingAvailable, false);
+  assert.equal(snapshot.generation.requestIndex, null);
+});
+
 test('readCloudTrajectory extracts matching trajectorySlice from React fiber and ignores other conversations', () => {
   const convId = 'fdeb3371-3973-474c-9765-b789e9a2aa18';
   const matching = {

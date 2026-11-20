@@ -330,7 +330,6 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
         health: null,
         uiVersion: PANEL_VERSION,
         ...cloudSnapshot,
-        requestTimingAvailable: false,
         prefs,
         ...await fetchQuota(),
       };

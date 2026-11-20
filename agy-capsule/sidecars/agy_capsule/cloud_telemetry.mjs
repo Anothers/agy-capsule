@@ -35,11 +35,27 @@ export function readCloudTrajectory(conversationId) {
     }
     return '';
   };
+  const tailStart = (length, total, start = 0) => {
+    if (!length || !Number.isSafeInteger(total) || !Number.isSafeInteger(start)) return null;
+    const offset = start < 0 ? Math.max(0, total + start) : start;
+    return offset + length === total ? offset : null;
+  };
+  const durationSeconds = duration => {
+    if (!duration || typeof duration !== 'object') return null;
+    const integer = value => typeof value === 'number' || typeof value === 'bigint' ||
+      (typeof value === 'string' && /^\d+$/.test(value)) ? Number(value) : NaN;
+    const sec = duration.seconds === undefined ? 0 : integer(duration.seconds);
+    const nanos = duration.nanos === undefined ? 0 : integer(duration.nanos);
+    if (!Number.isInteger(sec) || sec < 0 || sec >= 86_400 ||
+        !Number.isInteger(nanos) || nanos < 0 || nanos >= 1e9 || (!sec && !nanos)) return null;
+    return sec + nanos / 1e9;
+  };
 
   const container = rootEl[fiberKey];
   const seen = new WeakSet();
   const queue = [container?.stateNode?.current ?? container];
   let slice = null;
+  let offset = null;
   for (let i = 0; i < queue.length && i < 6000; i++) {
     const fiber = queue[i];
     if (!fiber || seen.has(fiber)) continue;
@@ -48,13 +64,12 @@ export function readCloudTrajectory(conversationId) {
     if (ts?.conversationId === conversationId && Array.isArray(ts.stepsInSlice)) {
       const meta = ts.metadata;
       if (meta?.parentConversationId || meta?.subagentSpec || meta?.nestingDepth > 0) return null;
-      // A retained prefix or a limited tail cannot give a trustworthy context breakdown.
-      const start = ts.stepsSlice?.startIndex ?? 0;
-      const total = ts.totalStepsLength;
-      if (meta && ts.stepsInSlice.length && ts.stepsInSlice.length === total && Number.isSafeInteger(start) &&
-          (start === 0 || (start < 0 && start + total <= 0))) {
+      // A retained prefix cannot identify the latest request; prefer a full slice over a tail.
+      const start = tailStart(ts.stepsInSlice.length, ts.totalStepsLength, ts.stepsSlice?.startIndex);
+      if (meta && start !== null && (offset === null || start < offset)) {
         slice = ts;
-        break;
+        offset = start;
+        if (offset === 0) break;
       }
     }
     if (fiber.child) queue.push(fiber.child);
@@ -62,14 +77,14 @@ export function readCloudTrajectory(conversationId) {
   }
   if (!slice) return null;
 
-  const steps = slice.stepsInSlice.map((step, idx) => {
+  const steps = slice.stepsInSlice.map((step, i) => {
     const m = step?.metadata || {};
     const u = m.modelUsage || null;
     const retryErrors = Array.isArray(m.retryInfos)
       ? m.retryInfos.map(r => errText(r?.error ?? r))
       : [];
     return {
-      idx,
+      idx: offset + i,
       stepType: toNum(step?.type),
       status: toNum(step?.status),
       createdAtMs: tsMs(m.createdAt),
@@ -88,6 +103,32 @@ export function readCloudTrajectory(conversationId) {
     };
   });
 
+  // The renderer often only holds the final generator record. It is evidence for
+  // one request, never for the rest of the turn. Don't walk back to an older timing.
+  let requestTiming = null;
+  const generators = slice.generatorMetadatasInSlice;
+  if (Array.isArray(generators) && tailStart(generators.length, slice.totalGeneratorMetadataLength,
+      slice.generatorMetadataSlice?.startIndex) !== null) {
+    const generator = generators.findLast(record => record?.metadata?.case !== 'injected');
+    const latest = steps.findLast(step => step.stepType === 15 || step.hasUsage || step.retryErrors.length);
+    const user = steps.findLast(step => step.stepType === 14 && step.status !== 11);
+    if (generator?.metadata?.case === 'chatModel' && !generator.error &&
+        latest?.stepType === 15 && latest.status === 3 && (!user || latest.idx > user.idx) &&
+        !latest.retryErrors.at(-1) && Array.isArray(generator.stepIndices) && generator.stepIndices.includes(latest.idx) &&
+        (!generator.executionId || !latest.executionId || generator.executionId === latest.executionId)) {
+      const model = generator.metadata.value;
+      const ttft = durationSeconds(model?.timeToFirstToken);
+      const streaming = durationSeconds(model?.streamingDuration);
+      // Use the request's usage or, if not sent, the explicitly linked response's usage.
+      const useGeneratorUsage = model?.usage?.outputTokens != null;
+      const output = useGeneratorUsage ? toNum(model.usage.outputTokens) : latest.outputTokens;
+      if (ttft !== null && streaming !== null && Number.isSafeInteger(output) && output > 0) {
+        requestTiming = { stepIndex: latest.idx, ttft, streaming, output,
+          reply: useGeneratorUsage ? toNum(model.usage.responseOutputTokens) : latest.replyTokens,
+          thinking: useGeneratorUsage ? toNum(model.usage.thinkingOutputTokens) : latest.thinkingTokens };
+      }
+    }
+  }
   const executors = Array.isArray(slice.executorMetadatasInSlice)
     ? slice.executorMetadatasInSlice.map(ex => ({
         reason: toNum(ex?.terminationReason ?? ex?.reason),
@@ -102,6 +143,7 @@ export function readCloudTrajectory(conversationId) {
     lastStepError: errText(slice.lastStepError),
     steps,
     executors,
+    requestTiming,
   };
 }
 
@@ -110,6 +152,25 @@ const ACTIVE_STATUSES = new Set([1, 2, 8, 9, 11]);
 export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   if (!raw || !Array.isArray(raw.steps) || raw.steps.length === 0) return null;
   const steps = [...raw.steps].sort((a, b) => a.idx - b.idx);
+  const timedStep = raw.requestTiming && steps.find(step => step.idx === raw.requestTiming.stepIndex);
+  const requestGeneration = timedStep ? summarizeGeneration({ ...raw.requestTiming, requestIndex: timedStep.idx }) : null;
+  const requestTimingAvailable = requestGeneration?.ttft > 0 && requestGeneration.streaming > 0 &&
+    Number.isFinite(requestGeneration.tps) && requestGeneration.tps > 0;
+  const timedSpeed = requestTimingAvailable ? {
+    generation: requestGeneration,
+    completedAtMs: timedStep.finishedGeneratingAtMs || timedStep.completedAtMs || 0,
+  } : null;
+
+  const requestOnly = () => ({
+    requestTimingAvailable,
+    generation: requestTimingAvailable ? requestGeneration : summarizeGeneration(),
+    turnSpeed: timedSpeed,
+    turnQueue: null,
+    turnMetrics: null,
+    requestError: classifyRequestError(raw.lastStepError),
+  });
+  // A verified tail can expose the latest request, but not the full turn or context breakdown.
+  if (raw.totalStepsLength > steps.length) return requestOnly();
 
   let userStepIndex = null;
   let metricsUserStepIndex = null;
@@ -181,7 +242,8 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
     };
     const generation = {
       requestIndex: reqIdx,
-      // Renderer step transitions are not model-server TTFT or streaming duration.
+      // Step transitions are not request timings. Keep the generator's single
+      // measured request separate from aggregation over the step window.
       ttft: null,
       streaming: null,
       output: hasOutput ? totalOut : null,
@@ -215,7 +277,8 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   if (latestRequestError.kind === 'none' && raw.lastStepError) {
     latestRequestError = classifyRequestError(raw.lastStepError);
   }
-  if (!parsedRequests.length && latestRequestError.kind === 'none') return null;
+  // Recognized cloud conversations still suppress an empty speed chip while the host is working.
+  if (!parsedRequests.length && latestRequestError.kind === 'none') return requestOnly();
 
   let epochStart = 0;
   if (turns.length > 0) {
@@ -264,14 +327,16 @@ export function readCloudConversationSnapshot(raw, includeTurnMetrics = true) {
   if (turnQueue && !turnSteps.some(step => step.step_type !== 14 && ACTIVE_STATUSES.has(step.status))) {
     turnQueue.waitingSinceMs = null;
   }
+  const turnSpeed = summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex);
   return {
-    turnSpeed: summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex),
+    requestTimingAvailable,
+    turnSpeed: timedSpeed ? { ...turnSpeed, ...timedSpeed } : turnSpeed,
     turnQueue,
     turnMetrics: includeTurnMetrics
       ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors)
       : null,
     requestError: latestRequestError,
-    generation: summarizeGeneration(latestGeneration),
+    generation: requestTimingAvailable ? requestGeneration : summarizeGeneration(latestGeneration),
     cachedIn: latest.cachedIn,
     uncachedIn: latest.uncachedIn,
     contextTokens: latest.contextTokens,

@@ -114,6 +114,12 @@ test('child reads never move the main sidebar and alerts stay in the child execu
   assert.equal(localChild.contextTokens, 150, 'the local child DB wins');
   assert.equal(localChild.requestTimingAvailable, undefined);
   assert.equal((await postContext({ conversationId: 'missing' })).contextTokens, 0);
+  rememberCloudTelemetry('cloud', { ...sample('cloud'), requestTiming: { stepIndex: 0, ttft: 1, streaming: 2, output: 90 } });
+  const timed = await postContext({ conversationId: 'cloud' });
+  assert.equal(timed.requestTimingAvailable, true);
+  assert.equal(timed.generation.tps, 30);
+  assert.equal((await inspectConversation('cloud', true)).turnSpeed.generation.tps, 30);
+  assert.equal(await inspectConversation('cloud', true, true), null);
   rememberCloudTelemetry('cloud', null);
   assert.equal((await postContext({ conversationId: 'cloud' })).contextTokens, 0);
 
