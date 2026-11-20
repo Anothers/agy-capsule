@@ -164,7 +164,7 @@ Browser regression tests are optional. With Playwright and Chromium installed, r
 Directions we may explore later, with no committed timeline:
 
 - **Sub-agent turn metrics**: Count each sub-agent execution as a turn to show turn duration, request count, and token totals.
-- **More effort bar styles**: Offer more optional effort bar looks for the model capsule, keeping the current style as the default.
+- **More effort bar styles**: The first optional animated effort slider is now available under the enhanced model picker; more optional looks may follow while keeping the current style as the default.
 - **WSL, SSH, and cloud projects**: Show capsules in WSL and SSH remote windows. Cloud project conversations already show the footer capsules, but the host does not offer the plugin sidebar there yet.
 
 ## Contributing
