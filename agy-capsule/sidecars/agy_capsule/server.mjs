@@ -386,6 +386,21 @@ async function readSelectedConversation(convId, allowLatest, subagentOnly = fals
 
 const conversationCache = createSqliteSnapshotCache(readConversationSnapshot);
 
+function visibleLocalRequestError(request, steps) {
+  const error = request?.requestError ?? classifyRequestError();
+  if (error.kind === 'none' || !request.stepIndices.length) return error;
+  // Steps can show the next response streaming before its gen_metadata row is saved.
+  const lastOutputIndex = request.stepIndices.reduce((last, idx) => Math.max(last, idx), -1);
+  const lastOutput = steps.find(step => step.idx === lastOutputIndex);
+  if (!lastOutput) return error;
+  const failedAt = lastOutput.recordedCompletedAtMs || lastOutput.terminalAtMs;
+  const resumed = steps.some(step => step.idx > lastOutputIndex && step.step_type === 15 &&
+    (step.status === 8 || (step.status === 3 && step.generatingAtMs > 0)) &&
+    (!lastOutput.executionId || step.executionId === lastOutput.executionId) &&
+    (!failedAt || step.createdAtMs >= failedAt));
+  return resumed ? classifyRequestError() : error;
+}
+
 function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
   let rawRows = [];
@@ -467,7 +482,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const turns = [];
   let maxContextTokens = 0;
   let latestGeneration = null;
-  let latestRequestError = classifyRequestError();
+  let latestTurnRequest = null;
   const parsedRequests = [];
 
   for (const row of rawRows) {
@@ -477,7 +492,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
     latestGeneration = parsed.generation;
     // Known earlier requests may finish late; they cannot replace the current turn's error.
     const earlierRequest = userStepIndex !== null && parsed.lastStepIndex >= 0 && parsed.lastStepIndex < userStepIndex;
-    if (!earlierRequest) latestRequestError = parsed.requestError;
+    if (!earlierRequest) latestTurnRequest = parsed;
     if (parsed.maxContextTokens > 0) {
       maxContextTokens = parsed.maxContextTokens;
     }
@@ -530,7 +545,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   const totalOutputTokens = Math.round(rawOut * genScale);
   const totalThinkingTokens = Math.round(rawThink * genScale);
 
-  let turnQueue, turnSpeed = null, childTurnMetrics = null;
+  let turnQueue, requestError, turnSpeed = null, childTurnMetrics = null;
   if (subagent) {
     // Parent messages and task notifications can start fresh executions without
     // a USER_INPUT step. Never roll previous executions into this one's alerts.
@@ -547,7 +562,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
     }) : [];
     const childExecutors = executors.filter(item => item.executionId === executionId);
     turnQueue = summarizeTurnQueue(requests, steps, steps[0]?.idx, childExecutors, true);
-    latestRequestError = requests.at(-1)?.requestError ?? classifyRequestError();
+    requestError = visibleLocalRequestError(requests.at(-1), steps);
     const execution = summarizeSubagentExecution(steps, childExecutors);
     if (execution) {
       let associationIncomplete = false;
@@ -567,6 +582,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
   } else {
     turnQueue = summarizeTurnQueue(parsedRequests, turnSteps, userStepIndex, executors);
     turnSpeed = summarizeTurnSpeed(parsedRequests, turnSteps, userStepIndex);
+    requestError = visibleLocalRequestError(latestTurnRequest, turnSteps);
   }
 
   return {
@@ -575,7 +591,7 @@ function readConversationSnapshot(dbPath, includeTurnMetrics = true) {
     turnQueue,
     turnMetrics: subagent ? childTurnMetrics : includeTurnMetrics
       ? summarizeTurnMetrics(parsedRequests, turnSteps.map(step => ({ ...step, completedAtMs: step.recordedCompletedAtMs })), metricsUserStepIndex, executors) : null,
-    requestError: latestRequestError,
+    requestError,
     generation: summarizeGeneration(latestGeneration),
     cachedIn: latest.cachedIn,
     uncachedIn: latest.uncachedIn,

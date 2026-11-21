@@ -55,10 +55,11 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       highContextTip: 'Context usage is high. Consider compacting or starting a new chat.',
       overflowContextTip: 'Latest request exceeded the model context limit.',
       requestFailure: 'Request failure', retryAfter: 'Server-reported retry wait:',
-      error_quota_exhausted: 'Quota exhausted', error_rate_limited: 'Rate limited', error_network_error: 'Disconnected', error_auth_error: 'Authentication error', error_service_unavailable: 'Service busy', error_unknown: 'Unknown reason',
+      error_quota_exhausted: 'Quota exhausted', error_rate_limited: 'Rate limited', error_request_timeout: 'Request timed out', error_network_error: 'Disconnected', error_auth_error: 'Authentication error', error_service_unavailable: 'Service busy', error_unknown: 'Unknown reason',
       detail_quota_exhausted: 'The request reported quota exhaustion. Switch to an available model or wait for its quota reset.',
       detail_rate_limited: 'The request was rate limited. Wait and retry.',
-      detail_network_error: 'The request connection failed or timed out. Check the connection and retry.',
+      detail_request_timeout: 'This model request timed out. The turn may still continue.',
+      detail_network_error: 'The connection for this model request failed. Check the connection and retry.',
       detail_auth_error: 'The request failed authentication or permission checks. Check sign-in and account access.',
       detail_service_unavailable: 'The model service is temporarily unavailable. Retry later or switch models.',
       detail_unknown: 'The model request failed, but the reported information does not identify a known cause.',
@@ -165,10 +166,11 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       highContextTip: '上下文占用较高，建议压缩或开启新对话。',
       overflowContextTip: '最近一次请求已超出上下文上限。',
       requestFailure: '请求失败', retryAfter: '服务端报告的重试等待：',
-      error_quota_exhausted: '额度耗尽', error_rate_limited: '429 限流', error_network_error: '断连', error_auth_error: '验证异常', error_service_unavailable: '服务繁忙', error_unknown: '未知原因',
+      error_quota_exhausted: '额度耗尽', error_rate_limited: '429 限流', error_request_timeout: '请求超时', error_network_error: '断连', error_auth_error: '验证异常', error_service_unavailable: '服务繁忙', error_unknown: '未知原因',
       detail_quota_exhausted: '请求报告额度耗尽。可切换其他可用模型，或等待额度重置。',
       detail_rate_limited: '本次模型请求受到频率限制，请稍后重试。',
-      detail_network_error: '本次模型请求连接失败或超时，请检查连接后重试。',
+      detail_request_timeout: '这次模型请求超时，本轮仍可能继续。',
+      detail_network_error: '这次模型请求连接失败，请检查连接后重试。',
       detail_auth_error: '本次请求未通过验证或权限检查，请检查登录状态和账号权限。',
       detail_service_unavailable: '模型服务暂不可用，可稍后重试或切换其他模型。',
       detail_unknown: '本次模型请求失败，但报告的信息不足以识别已知原因。',
@@ -275,10 +277,11 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       highContextTip: '上下文佔用較高，建議壓縮或開啟新對話。',
       overflowContextTip: '最近一次請求已超出上下文上限。',
       requestFailure: '請求失敗', retryAfter: '服務端回報的重試等待：',
-      error_quota_exhausted: '額度耗盡', error_rate_limited: '429 限流', error_network_error: '斷連', error_auth_error: '驗證異常', error_service_unavailable: '服務繁忙', error_unknown: '未知原因',
+      error_quota_exhausted: '額度耗盡', error_rate_limited: '429 限流', error_request_timeout: '請求逾時', error_network_error: '斷連', error_auth_error: '驗證異常', error_service_unavailable: '服務繁忙', error_unknown: '未知原因',
       detail_quota_exhausted: '請求回報額度耗盡。可切換其他可用模型，或等待額度重設。',
       detail_rate_limited: '本次模型請求受到頻率限制，請稍後重試。',
-      detail_network_error: '本次模型請求連線失敗或逾時，請檢查連線後重試。',
+      detail_request_timeout: '這次模型請求逾時，本輪仍可能繼續。',
+      detail_network_error: '這次模型請求連線失敗，請檢查連線後重試。',
       detail_auth_error: '本次請求未通過驗證或權限檢查，請檢查登入狀態和帳號權限。',
       detail_service_unavailable: '模型服務暫不可用，可稍後重試或切換其他模型。',
       detail_unknown: '本次模型請求失敗，但回報的資訊不足以識別已知原因。',
@@ -580,7 +583,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     const ratio = data.maxContextTokens > 0 ? (data.contextTokens || 0) / data.maxContextTokens : 0;
     const contextTone = prefs.showContextWarnings === false ? '' : kind === 'context_overflow' || ratio >= .9 ? 'error' : ratio >= .75 ? 'warning' : '';
     const contextTip = !contextTone ? '' : kind === 'context_overflow' ? t.overflowContextTip : t.highContextTip;
-    const errorVisible = prefs.showRequestErrors !== false && ['quota_exhausted', 'rate_limited', 'network_error', 'auth_error', 'service_unavailable', 'unknown'].includes(kind);
+    const errorVisible = prefs.showRequestErrors !== false && ['quota_exhausted', 'rate_limited', 'request_timeout', 'network_error', 'auth_error', 'service_unavailable', 'unknown'].includes(kind);
     if (errorVisible) {
       const label = t['error_' + kind];
       const wait = data.requestError?.retryAfterSec;
@@ -729,7 +732,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return t;
   }
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return { version: 89, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
+  return { version: 96, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
 }
 
-export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 89) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
+export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 96) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;

@@ -46,7 +46,7 @@ Shows the remaining 5-hour and weekly quotas and their reset countdowns for the 
 
 Shared on the third footer capsule (request failures take priority when both are active):
 
-☑ **Request failure alert**: Appears in red only when a request fails; hover or click it to see the raw error and an explanation in the panel. Reasons shown: quota exhausted, rate limited (429), disconnected, authentication error, service busy and unknown.
+☑ **Request failure alert**: Appears in red only when a request fails; hover or click it to see the raw error and an explanation. Request timeouts and connection failures are shown separately; a timeout does not mean the turn stopped. Other reasons include quota exhaustion, rate limiting (429), authentication errors, service busy and unknown errors.
 
 ☑ **First-token wait alert**: An amber capsule appears when a wait reaches the threshold (default `30s`, range `1–999s`). `Wait×2 40s` means two intervals reached the threshold this turn, including a current estimate of 40 seconds. Active tools and streaming stop the live clock. Earlier slow waits remain visible in the panel.
 
