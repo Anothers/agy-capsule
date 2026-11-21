@@ -1087,31 +1087,59 @@ const UI_HTML = `<!DOCTYPE html>
     }
     .settings { display: flex; flex-direction: column; gap: 0; width: 100%; }
     .sidebar-content { padding: 12px 14px; }
-    .version-panel { max-width: 1120px; margin: 0 auto 10px; font-size: 12.5px; color: var(--foreground, #ebebeb); }
+    .version-panel { max-width: 1120px; margin: 0 auto 10px; font-size: 12.5px; color: var(--foreground, #ebebeb); container: version / inline-size; --version-link: color-mix(in srgb, #2b7fff 48%, var(--foreground, #ebebeb)); }
     .sidebar-nav:has(.sidebar-tabs:is([data-view="stats"], [data-view="fx"])) + .version-panel :is(.version-line, #version-status) { display: none; }
     .sidebar-nav:has(.sidebar-tabs:is([data-view="stats"], [data-view="fx"])) + .version-panel:not(:has(#version-notice:not([hidden]))) { display: none; }
-    .version-line, .version-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
-    .version-line { justify-content: space-between; flex-wrap: nowrap; }
-    .version-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; gap: 5px; width: 124px; margin-left: auto; flex-shrink: 0; }
-    .version-controls > .pv-swatch { width: 100%; padding: 4px 4px; white-space: nowrap; }
-    .version-panel[lang="en"] .version-controls { width: auto; min-width: 124px; grid-template-columns: auto auto; }
-    .version-panel[lang="en"] .version-controls > .pv-swatch { padding: 4px 8px; }
-    #version-check { color: var(--foreground, #ebebeb); }
-    #version-check:disabled { opacity: .7; cursor: wait; }
-    .version-button { min-height: 28px; padding: 3px 8px; border-radius: 5px; border: 1px solid var(--border, #555); background: var(--card, #222225); color: inherit; font: inherit; cursor: pointer; }
-    .version-button:hover:not(:disabled) { background: color-mix(in srgb, var(--foreground, #ebebeb) 9%, var(--card, #222225)); }
-    .version-button:disabled { opacity: .7; cursor: wait; }
+    .version-line { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
+    #version-number { color: var(--muted-foreground, #a2a2a9); font-variant-numeric: tabular-nums; }
+    .version-controls { display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+    .version-controls > .pv-swatch { padding: 4px 7px; white-space: nowrap; font-size: inherit; }
+    #version-notify { border-color: transparent; background: transparent; color: var(--muted-foreground, #a2a2a9); font-weight: 400; }
+    #version-notify:hover:not(:disabled) { background: var(--secondary, #303034); }
+    #version-notify::before {
+      content: ""; width: 19px; height: 11px; border-radius: 10px; flex: none;
+      background: radial-gradient(circle at var(--version-knob-x, 5.5px) 50%, var(--card, #222225) 3px, transparent 3.7px)
+        var(--version-toggle-track, color-mix(in srgb, currentColor 46%, var(--card, #222225)));
+    }
+    #version-notify[data-active="true"] { --version-knob-x: 13.5px; --version-toggle-track: currentColor; }
+    #version-check { color: inherit; }
+    .version-panel button:disabled { opacity: .7; cursor: default; }
     .version-panel :is(button, a):focus-visible { outline: 2px solid #388bfd; outline-offset: 1px; }
     .version-feedback { margin: 0; line-height: 1.5; }
     .version-feedback:not(:empty) { margin-top: 5px; }
-    .version-notice { margin-top: 7px; padding: 8px 10px; border-radius: 7px; border: 1px solid var(--border, #555); background: var(--card, #222225); line-height: 1.5; }
-    .version-notice p { margin: 4px 0; }
-    .version-notice .version-feedback:empty { margin: 0; }
-    .version-notice a { color: inherit; text-decoration: underline; }
-    .version-actions { margin-top: 5px; }
-    #version-update { border-color: #2b7fff; background: color-mix(in srgb, #2b7fff 18%, var(--card, #222225)); }
-    #version-update:hover:not(:disabled) { background: color-mix(in srgb, #2b7fff 29%, var(--card, #222225)); }
-    @media(pointer:coarse) { .version-button, #version-notify, .version-actions a { min-height: 44px; } .version-actions a { display: inline-flex; align-items: center; } }
+    #version-status[data-state="current"], .version-notice[data-state="updated"] { background: color-mix(in srgb, #22a574 13%, var(--card, #222225)); }
+    #version-status[data-state="current"] { padding: 5px 8px; border-radius: 6px; }
+    .version-notice { margin-top: 7px; padding: 8px; border-radius: 8px; border: 1px solid var(--border, #555); background: var(--card, #222225); }
+    .version-notice[data-state="error"] { border-color: color-mix(in srgb, #ec854d 36%, var(--border, #555)); }
+    .version-actions { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto auto; align-items: center; gap: 5px; min-height: 36px; }
+    .version-icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 7px; color: var(--version-link); background: color-mix(in srgb, #2b7fff 14%, var(--card, #222225)); }
+    .version-icon svg, #version-dismiss svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.65; stroke-linecap: round; stroke-linejoin: round; }
+    .version-icon svg[data-icon="warning"], .version-notice[data-state="error"] svg[data-icon="download"] { display: none; }
+    .version-notice[data-state="error"] svg[data-icon="warning"] { display: block; }
+    .version-notice[data-state="error"] .version-icon { color: inherit; background: color-mix(in srgb, #ec854d 18%, var(--card, #222225)); }
+    .version-notice[data-state="updated"] .version-actions { display: none; }
+    .version-notice[data-state="updated"] .version-feedback { margin: 0; }
+    #version-available { display: block; font-size: 13px; font-weight: 650; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+    #version-release { color: var(--version-link); font-size: 12px; text-decoration: none; }
+    #version-release:hover { text-decoration: underline; text-underline-offset: 2px; }
+    #version-update, #version-dismiss { display: grid; place-items: center; border: 0; border-radius: 6px; padding: 0; font: inherit; cursor: pointer; }
+    #version-update { padding: 4px 10px; min-height: 29px; color: #fff; background: #2656d1; font-weight: 600; white-space: nowrap; }
+    #version-update:hover:not(:disabled) { background: #1d49b9; }
+    #version-dismiss { width: 24px; height: 26px; color: var(--muted-foreground, #a2a2a9); background: transparent; }
+    #version-dismiss:hover:not(:disabled) { color: inherit; background: var(--secondary, #303034); }
+    #version-update-status { color: var(--muted-foreground, #a2a2a9); }
+    .version-progress { display: none; height: 3px; overflow: hidden; margin-top: 7px; border-radius: 2px; background: color-mix(in srgb, #2b7fff 18%, transparent); }
+    .version-progress::before { content: ""; display: block; width: 35%; height: 100%; border-radius: inherit; background: #2b7fff; animation: version-progress 1.2s ease-in-out infinite alternate; }
+    .version-notice[data-state="updating"] .version-progress { display: block; }
+    @keyframes version-progress { to { transform: translateX(185%); } }
+    @media(prefers-reduced-motion: reduce) { .version-progress::before { animation: none; } }
+    @container version (max-width: 278px) {
+      .version-actions { grid-template-columns: minmax(0, 1fr) auto auto; }
+      .version-icon { display: none; }
+      #version-available { font-size: 12.5px; }
+      #version-update { padding-inline: 8px; }
+    }
+    @media(pointer:coarse) { .version-controls > .pv-swatch, #version-update, #version-dismiss { min-height: 44px; } #version-dismiss { width: 44px; } #version-release:not([hidden]) { display: inline-flex; align-items: center; min-height: 24px; } }
     .sidebar-view[hidden] { display: none; }
     .sidebar-nav { position: sticky; top: 0; z-index: 20; margin: -12px -14px 10px; padding: 8px 14px; background: var(--background, #141414); border-bottom: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.24)) 65%, transparent); }
     .sidebar-tabs { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; max-width: 1120px; margin: 0 auto; padding: 2.5px; border-radius: 7px; background: color-mix(in srgb, var(--foreground, #ebebeb) 6%, var(--background, #141414)); border: 1px solid color-mix(in srgb, var(--foreground, #ebebeb) 10%, transparent); }
@@ -1585,12 +1613,19 @@ const UI_HTML = `<!DOCTYPE html>
     </div>
     <p class="version-feedback" id="version-status" role="status"></p>
     <div class="version-notice" id="version-notice" hidden>
-      <strong id="version-available" role="status" aria-atomic="true"></strong>
       <div class="version-actions">
-        <button type="button" class="version-button" id="version-update" aria-describedby="version-update-status"></button>
-        <a id="version-release" target="_blank" rel="noopener noreferrer"></a>
-        <button type="button" class="version-button" id="version-dismiss"></button>
+        <span class="version-icon" aria-hidden="true">
+          <svg data-icon="download" viewBox="0 0 24 24"><path d="M12 3v12m-4-4 4 4 4-4M5 16v3a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-3"/></svg>
+          <svg data-icon="warning" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.2m0 3.6h.01"/></svg>
+        </span>
+        <div>
+          <strong id="version-available" role="status" aria-atomic="true"></strong>
+          <a id="version-release" target="_blank" rel="noopener noreferrer"></a>
+        </div>
+        <button type="button" id="version-update" aria-describedby="version-update-status"></button>
+        <button type="button" id="version-dismiss"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>
       </div>
+      <div class="version-progress" aria-hidden="true"></div>
       <p class="version-feedback" id="version-update-status" role="status" aria-atomic="true"></p>
     </div>
   </div>

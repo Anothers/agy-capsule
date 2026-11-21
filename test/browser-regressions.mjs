@@ -546,7 +546,7 @@ await test('Sidebar skips unchanged and hidden statistics but catches up on time
   assert.equal(polls, before + 1, 'returning to statistics paints the latest snapshot without waiting for a poll');
 });
 
-await test('Sidebar version bar saves its toggle and reports manual checks without a success row', async t => {
+await test('Sidebar version bar saves its toggle and reports manual checks', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
@@ -590,10 +590,8 @@ await test('Sidebar version bar saves its toggle and reports manual checks witho
   assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
   assert.equal(await toggle.getAttribute('data-active'), 'true');
   assert.match(await toggle.getAttribute('title'), /關閉後不再於背景檢查/);
-  assert.equal(await toggle.evaluate(el => getComputedStyle(el).borderTopColor), 'rgb(43, 127, 255)');
-  const enButton = page.locator('[data-setting-card="settingsLanguage"] .pv-pick-inline > button').first();
-  const [toggleBox, checkBox, enBox] = await Promise.all([toggle.boundingBox(), check.boundingBox(), enButton.boundingBox()]);
-  assert.ok(Math.abs(toggleBox.x - enBox.x) < 1, 'the toggle left edge aligns with EN below');
+  assert.equal(await toggle.evaluate(el => getComputedStyle(el).borderTopColor), 'rgba(0, 0, 0, 0)');
+  const [toggleBox, checkBox] = await Promise.all([toggle.boundingBox(), check.boundingBox()]);
   assert.ok(Math.abs((toggleBox.y + toggleBox.height / 2) - (checkBox.y + checkBox.height / 2)) < 2, 'both buttons are in one row');
 
   assert.equal(await page.locator('#sidebar-settings [data-setting-card="notifyUpdates"], #setting-notify-updates').count(), 0);
@@ -613,25 +611,36 @@ await test('Sidebar version bar saves its toggle and reports manual checks witho
   await page.locator('#sidebar-tab-settings').click();
   response = { status: 'current', currentVersion: CURRENT_VERSION };
   await check.click();
-  await page.getByRole('button', { name: '已是最新' }).waitFor();
-  assert.equal(await status.textContent(), '');
-  assert.equal(await status.evaluate(el => el.getBoundingClientRect().height), 0);
+  await status.getByText('已是最新版本').waitFor();
+  assert.equal(await check.textContent(), '檢查更新');
   response = update;
   await check.click();
   await notice.waitFor();
-  assert.ok((await notice.textContent()).includes(`${CURRENT_VERSION} → 1.5.0`));
+  const title = notice.locator('#version-available');
+  assert.equal(await title.textContent(), `發現新版本:\u00a0${CURRENT_VERSION} → 1.5.0`);
+  const geometry = await title.evaluate(el => {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    const box = id => document.getElementById(id).getBoundingClientRect();
+    const centerY = b => (b.top + b.bottom) / 2;
+    return { lines: range.getClientRects().length, offset: Math.abs(centerY(box('version-update')) - centerY(box('version-dismiss'))) };
+  });
+  assert.equal(geometry.lines, 1, 'the full update title fits on one line at 320px');
+  assert.ok(geometry.offset < 1, 'Update and dismiss stay on the same row');
+  assert.equal(await notice.getByRole('link', { name: '版本說明' }).getAttribute('href'), update.releaseUrl);
   assert.equal(await check.textContent(), '檢查更新');
   await notice.getByRole('button', { name: '暫不更新' }).click();
   await notice.waitFor({ state: 'hidden' });
   response = null;
   await check.click();
   await page.getByText('檢查失敗：無法連線至側欄的版本檢查服務。').waitFor();
-  assert.equal(await turn.isVisible(), true, 'failure in the optional version route does not lock the sidebar');
   assert.equal(await check.textContent(), '檢查更新');
   assert.deepEqual(checks, ['auto', 'manual', 'manual', 'manual']);
   await Promise.all([page.waitForResponse(res => res.url().endsWith('/api/settings')), toggle.click()]);
   assert.deepEqual(saves, [{ notifyUpdates: false }, { notifyUpdates: true }]);
   assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
+  await page.locator('#sidebar-tab-stats').click();
+  assert.equal(await turn.isVisible(), true, 'failure in the optional version route does not lock the sidebar');
 });
 
 await test('Sidebar downloads only after an update click and offers retry before reload', async t => {
@@ -664,15 +673,16 @@ await test('Sidebar downloads only after an update click and offers retry before
   const button = page.locator('#version-update');
   const message = page.locator('#version-update-status');
   await button.waitFor();
-  assert.equal(await button.textContent(), '一键更新');
+  assert.equal(await button.textContent(), '更新');
   assert.deepEqual(requests, []);
   assert.equal(await page.locator('#version-notice').getByText(/update\.bat|update\.sh/).count(), 0);
   await button.click();
   await page.getByRole('button', { name: '更新中…' }).waitFor();
   assert.equal(await button.isDisabled(), true);
   respondToFirst({ status: 'error', reason: 'archive' });
-  await message.getByText(/归档不完整或未通过校验.*手动更新/).waitFor();
-  assert.equal(await button.textContent(), '一键更新');
+  await message.getByText(/归档不完整或未通过校验/).waitFor();
+  assert.equal(await button.textContent(), '重试');
+  assert.equal(await page.getByRole('link', { name: '手动更新' }).getAttribute('href'), 'https://github.com/Lumidarin/agy-capsule/releases/tag/v' + latestVersion);
   assert.equal(await button.isEnabled(), true);
   await button.click();
   await message.getByText('更新完成，正在重新加载…').waitFor();
