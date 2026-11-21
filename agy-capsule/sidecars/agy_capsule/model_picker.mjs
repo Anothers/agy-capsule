@@ -816,7 +816,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     const fromEffort = source === 'effort';
     if (fromEffort && (!currentEffortCaption || !currentEffortLabels.includes(label))) return;
     if (pending) {
-      // Do not submit stale options concurrently: keep the newest detent in a fast drag.
+      // Keep only the newest effort choice while the host confirms the previous one.
       if (fromEffort && currentEffortLabels.includes(pending)) queuedEffort = label === pending ? null : label;
       return;
     }

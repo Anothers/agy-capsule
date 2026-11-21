@@ -80,15 +80,20 @@ function mountSlider(baseName, startingEffort) {
   };
   const container = makeElement();
   const value = makeElement();
+  const selections = [];
   const seat = {
     baseName,
     currentEffort: startingEffort,
     get effortLevels() { counters.seatReads++; return levels; },
-    selectEffort(item) { this.currentEffort = item.effort; },
+    selectEffort(item) {
+      selections.push(item.effort);
+      this.currentEffort = item.effort;
+    },
   };
   const slider = createUpstreamEffort().mountCodexEffortSlider({ container, valueElement: value, seat, document, window });
+  const root = container.children[0];
   return {
-    slider, value, root: container.children[0], canvas: elements.get('canvas'), frames, resize, counters, motion,
+    slider, value, root, track: root.children[0], selections, canvas: elements.get('canvas'), frames, resize, counters, motion,
     tick(time) {
       const scheduled = [...frames.values()];
       frames.clear();
@@ -96,6 +101,49 @@ function mountSlider(baseName, startingEffort) {
     },
   };
 }
+
+const pointer = clientX => ({ clientX, button: 0, buttons: 1, pointerId: 1 });
+
+test('dragging across tiers previews their effects and only commits the release tier', t => {
+  const { slider, value, track, selections } = mountSlider('Gemini', 'low');
+  t.after(() => slider.unmount());
+
+  track.dispatch('pointerdown', pointer(140));
+  assert.equal(value.textContent, 'Medium');
+  track.dispatch('pointermove', pointer(266));
+  assert.equal(value.textContent, 'High');
+  assert.equal(value.classList.contains('is-glowing'), true);
+  track.dispatch('pointermove', pointer(140));
+  assert.equal(value.textContent, 'Medium');
+  assert.deepEqual(selections, []);
+
+  track.dispatch('pointerup', pointer(140));
+  track.dispatch('lostpointercapture', pointer(140));
+  assert.deepEqual(selections, ['medium']);
+});
+
+test('tap and keyboard commit without waiting for the slider animation', t => {
+  const { slider, root, track, selections } = mountSlider('Gemini', 'low');
+  t.after(() => slider.unmount());
+
+  track.dispatch('pointerdown', pointer(140));
+  track.dispatch('pointerup', pointer(140));
+  assert.deepEqual(selections, ['medium']);
+  root.dispatch('keydown', { key: 'ArrowRight' });
+  assert.deepEqual(selections, ['medium', 'high']);
+});
+
+test('pointer cancellation discards the draft and restores the selected tier', t => {
+  const { slider, value, track, selections } = mountSlider('Gemini', 'low');
+  t.after(() => slider.unmount());
+
+  track.dispatch('pointerdown', pointer(14));
+  track.dispatch('pointermove', pointer(266));
+  assert.equal(value.textContent, 'High');
+  track.dispatch('pointercancel', pointer(266));
+  assert.equal(value.textContent, 'Low');
+  assert.deepEqual(selections, []);
+});
 
 test('switching tiers replays only the matching CSS effects without reading offsetWidth', t => {
   const { slider, value, root } = mountSlider('Gemini', 'low');

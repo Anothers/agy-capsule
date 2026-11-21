@@ -247,7 +247,7 @@ export function createUpstreamEffort() {
 
   /**
    * 迟滞棘轮分档器（Hysteresis Detent）：
-   * - 向新档位方向推进过 1/3 格宽即刻触发跳档，保证「拖过边界立即切档」的轻快手感；
+   * - 向新档位方向推进过 1/3 格宽即刻预览下一档；
    * - 往回退则需要退过 2/3 格宽（留出 [1/3, 2/3] 迟滞带），防止手指停在边界附近时左右抖动。
    */
   function detentTargetIndex(currentIndex, ptrPct, count) {
@@ -1084,7 +1084,7 @@ export function createUpstreamEffort() {
     var draftIndex = null;
     var snapIndex = null;
     var detentIndex = -1;
-    var lastCommittedIndex = -1;
+    var lastShownMax = null;
 
     var lastPtrPct = null;
     var lastPtrMs = 0;
@@ -1169,6 +1169,13 @@ export function createUpstreamEffort() {
       var levelItem = snap.levels[safeIdx];
       var label = levelItem ? levelItem.label : "";
       var isMax = snap.visualMax || (!snap.locked && count > 1 && safeIdx === count - 1 && !isOffLevel(label));
+
+      // Preview the same max-tier effect on drag, tap, and keyboard changes.
+      if (lastShownMax !== null && isMax !== lastShownMax) {
+        if (isMax) triggerMaxEffects(snap.isClaude);
+        else clearMaxEffects();
+      }
+      lastShownMax = isMax;
 
       var rowEl =
         opts.row ||
@@ -1507,27 +1514,12 @@ export function createUpstreamEffort() {
       }
     }
 
-    /**
-     * 立即把目标档位写回宿主（Antigravity React Fiber 或 Seat）：
-     * 拖过档位边界时同步触发，无需等待 pointerup 松手。
-     */
     function commitAtIndex(targetIndex, reason) {
       var snap = readSeatSnapshot();
       if (snap.locked || snap.count <= 1) return;
       var clampedIdx = Math.max(0, Math.min(snap.count - 1, targetIndex));
       var item = snap.levels[clampedIdx];
       if (!item) return;
-
-      var isNowMax = clampedIdx === snap.count - 1 && !isOffLevel(item.label);
-      var wasMax = lastCommittedIndex === snap.count - 1;
-
-      lastCommittedIndex = clampedIdx;
-
-      if (isNowMax && !wasMax) {
-        triggerMaxEffects(snap.isClaude);
-      } else if (!isNowMax && wasMax) {
-        clearMaxEffects();
-      }
 
       if (seat && typeof seat.selectEffort === "function") {
         try {
@@ -1537,7 +1529,7 @@ export function createUpstreamEffort() {
       }
       if (typeof opts.onCommit === "function") {
         try {
-          opts.onCommit(item, clampedIdx, reason || "drag");
+          opts.onCommit(item, clampedIdx, reason);
         } catch (err) {
           // 忽略外部回调异常
         }
@@ -1606,21 +1598,15 @@ export function createUpstreamEffort() {
       var m = ensureMotion(snap);
       m.target = targetPct;
 
-      // ★ 核心交互：只要滑过档位边界（或者点击了另一档位），不用等松手，立即切换官方真实档位 ★
-      if (nowIndex !== lastCommittedIndex) {
-        commitAtIndex(nowIndex, isInitialDown ? "down" : "drag");
-      }
-
-      // ★ 顺滑连续跟手：拖动中圆钮直接 1:1 跟随鼠标连续浮点位置，不卡顿、不硬吸附 ★
-      // 松手（endDrag）时再以 ~100ms 轻快阻尼磁吸至最终离散档位圆心
+      // Keep the knob and tier effects under the pointer without writing to the host.
       m.x = targetPct;
       m.v = 0;
       m.a = 0;
       stopFrames();
-      applyVisualPct(readSeatSnapshot(), m.x, nowIndex);
+      applyVisualPct(snap, m.x, nowIndex);
     }
 
-    function endDrag(clientX) {
+    function endDrag(clientX, cancelled = false) {
       if (!dragging) return;
       var snap = readSeatSnapshot();
       var ptrPct = draftPct !== null ? draftPct : pctFromIndex(snap.officialIndex, snap.count);
@@ -1631,7 +1617,9 @@ export function createUpstreamEffort() {
 
       var mode = motionMode(win, activeSettings);
       var finalIndex;
-      if (mode === "fast") {
+      if (cancelled) {
+        finalIndex = snap.officialIndex;
+      } else if (mode === "fast") {
         var baseDetent = detentIndex >= 0 && detentIndex < snap.count ? detentIndex : snap.officialIndex;
         finalIndex = detentTargetIndex(baseDetent, ptrPct, snap.count);
       } else if (mode === "quick") {
@@ -1650,7 +1638,7 @@ export function createUpstreamEffort() {
       ptrSpeed = 0;
       snapIndex = finalIndex;
 
-      if (finalIndex !== lastCommittedIndex) {
+      if (!cancelled && finalIndex !== snap.officialIndex) {
         commitAtIndex(finalIndex, "release");
       }
 
@@ -1687,8 +1675,6 @@ export function createUpstreamEffort() {
 
       dragging = true;
       buttonDown = true;
-      // 起手时对齐当前官方档位，若起手点就在当前档位则不重复触发无意义的写入；若点在其他档位则立即切过去
-      lastCommittedIndex = snap.officialIndex;
       detentIndex = snap.officialIndex;
       snapIndex = null;
       lastPtrPct = null;
@@ -1714,7 +1700,7 @@ export function createUpstreamEffort() {
     function onPointerUp(ev) {
       if (!dragging) return;
       swallowEvent(ev);
-      buttonDown = false;
+      endDrag(ev && typeof ev.clientX === "number" ? ev.clientX : undefined);
       try {
         if (trackEl.releasePointerCapture && ev && ev.pointerId !== undefined) {
           trackEl.releasePointerCapture(ev.pointerId);
@@ -1722,14 +1708,12 @@ export function createUpstreamEffort() {
       } catch (err) {
         // 忽略释放失败
       }
-      endDrag(ev && typeof ev.clientX === "number" ? ev.clientX : undefined);
     }
 
     function onPointerCancel(ev) {
       if (!dragging) return;
       swallowEvent(ev);
-      buttonDown = false;
-      endDrag(undefined);
+      endDrag(undefined, true);
     }
 
     function onKeyDown(ev) {
