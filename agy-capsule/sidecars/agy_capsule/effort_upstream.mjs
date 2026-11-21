@@ -39,11 +39,11 @@ export function createUpstreamEffort() {
   }
 
   // ── 连续物理运动参数 ────────────────────────────────────────────────────────
-  // full: 完整星云阻尼变速动画；fast: 快速 ~70ms 跟手吸附（默认）；quick: 0 动画直接跳格
+  // full: 慢速 ~520ms 滑行 + 星尘渐亮；fast: 快速 ~160ms 滑行（默认）；quick: 系统减弱动态效果时的无过渡跳格
   var MOTION = Object.freeze({
-    maxSpeed: 3.2,
-    accel: 28,
-    decel: 18,
+    maxSpeed: 2.6,
+    accel: 20,
+    decel: 14,
     snapEps: 0.0015,
     velEps: 0.01
   });
@@ -57,9 +57,9 @@ export function createUpstreamEffort() {
   });
 
   var MOTION_FAST = Object.freeze({
-    maxSpeed: 18,
-    accel: 260,
-    decel: 180,
+    maxSpeed: 8.5,
+    accel: 95,
+    decel: 75,
     snapEps: 0.002,
     velEps: 0.04
   });
@@ -75,14 +75,15 @@ export function createUpstreamEffort() {
 
   var SETTINGS_SCHEMA = Object.freeze([
     { key: "theme", defaultValue: "auto", options: [{ value: "auto" }, { value: "codex" }, { value: "claude" }] },
+    { key: "orchestratorStyle", defaultValue: "helix", options: [{ value: "nebula" }, { value: "beam" }, { value: "helix" }, { value: "dock" }, { value: "orb" }] },
+    { key: "orchestratorIcon", defaultValue: "prism", options: [{ value: "prism" }, { value: "gravity" }, { value: "semicircle" }, { value: "none" }] },
     Object.freeze({
       key: "motion",
-      label: "动画效果",
+      label: "动画速度",
       defaultValue: "fast",
       options: Object.freeze([
-        Object.freeze({ value: "fast", label: "快速动画", hint: "拨过 1/3 即切档 · ~70ms 快速吸附" }),
-        Object.freeze({ value: "quick", label: "简洁动画", hint: "无过渡 · 直接跳档" }),
-        Object.freeze({ value: "full", label: "完整动画", hint: "匀变速追赶 + 星尘渐亮" })
+        Object.freeze({ value: "fast", label: "快速", hint: "~160ms 快速滑行" }),
+        Object.freeze({ value: "full", label: "慢速", hint: "~520ms 慢速滑行 + 星尘渐亮" })
       ])
     }),
     Object.freeze({
@@ -120,9 +121,6 @@ export function createUpstreamEffort() {
         }
       }
       if (matched) base[item.key] = candidate;
-    }
-    if (!raw.motion && raw.reducedMotion === true) {
-      base.motion = "quick";
     }
     return base;
   }
@@ -1079,6 +1077,7 @@ export function createUpstreamEffort() {
     trackResizeObserver?.observe(trackEl);
 
     var dragging = false;
+    var hasDragged = false;
     var buttonDown = false;
     var draftPct = null;
     var draftIndex = null;
@@ -1565,45 +1564,27 @@ export function createUpstreamEffort() {
       lastPtrMs = now;
 
       var mode = motionMode(win, activeSettings);
-      var nowIndex;
-      var targetPct;
-
-      if (mode === "fast") {
-        if (isInitialDown || detentIndex < 0 || detentIndex >= snap.count) {
-          // 按下时若点击位置跨格，直接按最近格响应；随后的拖动按 1/3 边界迟滞棘轮触发
-          nowIndex = isInitialDown
-            ? indexFromPct(ptrPct, snap.count)
-            : detentTargetIndex(snap.officialIndex, ptrPct, snap.count);
-        } else {
-          nowIndex = detentTargetIndex(detentIndex, ptrPct, snap.count);
-        }
-        // 仅当指针已进入 nowIndex 自身的稳定死区时才把棘轮锚点推进到 nowIndex，
-        // 否则保持在过渡区来源侧相邻格，防止在 [1/3, 2/3] 区间连续微移或松手时来回翻转
-        if (detentTargetIndex(nowIndex, ptrPct, snap.count) === nowIndex) {
-          detentIndex = nowIndex;
-        } else if (ptrPct < pctFromIndex(nowIndex, snap.count)) {
-          detentIndex = Math.max(0, nowIndex - 1);
-        } else {
-          detentIndex = Math.min(snap.count - 1, nowIndex + 1);
-        }
-        targetPct = ptrPct;
-      } else {
-        nowIndex = indexFromPct(ptrPct, snap.count);
-        targetPct = ptrPct;
-      }
+      // 统一按 1/2 中点就近切档，不使用 1/3 棘轮阈值
+      var nowIndex = indexFromPct(ptrPct, snap.count);
+      var targetPct = ptrPct;
 
       draftPct = ptrPct;
       draftIndex = nowIndex;
 
       var m = ensureMotion(snap);
-      m.target = targetPct;
-
-      // Keep the knob and tier effects under the pointer without writing to the host.
-      m.x = targetPct;
-      m.v = 0;
-      m.a = 0;
-      stopFrames();
-      applyVisualPct(snap, m.x, nowIndex);
+      if (isInitialDown && mode !== "quick") {
+        // 按下轨道点击档位时保留当前位置并从原位平滑滑向目标，不再瞬移
+        m.target = pctFromIndex(nowIndex, snap.count);
+        applyVisualPct(snap, m.x, nowIndex);
+        startFrames();
+      } else {
+        m.target = targetPct;
+        m.x = targetPct;
+        m.v = 0;
+        m.a = 0;
+        stopFrames();
+        applyVisualPct(snap, m.x, nowIndex);
+      }
     }
 
     function endDrag(clientX, cancelled = false) {
@@ -1616,20 +1597,12 @@ export function createUpstreamEffort() {
       }
 
       var mode = motionMode(win, activeSettings);
-      var finalIndex;
-      if (cancelled) {
-        finalIndex = snap.officialIndex;
-      } else if (mode === "fast") {
-        var baseDetent = detentIndex >= 0 && detentIndex < snap.count ? detentIndex : snap.officialIndex;
-        finalIndex = detentTargetIndex(baseDetent, ptrPct, snap.count);
-      } else if (mode === "quick") {
-        finalIndex = indexFromPct(ptrPct, snap.count);
-      } else {
-        var idleS = lastPtrMs > 0 ? Math.max(0, (nowMs() - lastPtrMs) / 1000) : 1;
-        finalIndex = releaseIndexFor(ptrPct, ptrSpeed, idleS, snap.count);
-      }
+      // 统一按 1/2 中点落点确定档位，不叠加松手甩动惯性
+      var finalIndex = cancelled ? snap.officialIndex : indexFromPct(ptrPct, snap.count);
 
+      var wasDragged = hasDragged;
       dragging = false;
+      hasDragged = false;
       buttonDown = false;
       draftPct = null;
       draftIndex = null;
@@ -1653,9 +1626,11 @@ export function createUpstreamEffort() {
         stopFrames();
         applyVisualPct(readSeatSnapshot(), m.x, finalIndex);
       } else {
-        m.x = ptrPct;
-        m.v = 0;
-        m.a = 0;
+        if (wasDragged) {
+          m.x = ptrPct;
+          m.v = 0;
+          m.a = 0;
+        }
         applyVisualPct(readSeatSnapshot(), m.x, finalIndex);
         startFrames();
       }
@@ -1666,6 +1641,8 @@ export function createUpstreamEffort() {
       if (typeof ev.stopPropagation === "function") ev.stopPropagation();
     }
 
+    var downClientX = NaN;
+
     function onPointerDown(ev) {
       if (ev && typeof ev.button === "number" && ev.button !== 0) return;
       var snap = readSeatSnapshot();
@@ -1674,6 +1651,8 @@ export function createUpstreamEffort() {
       if (typeof ev.preventDefault === "function") ev.preventDefault();
 
       dragging = true;
+      hasDragged = false;
+      downClientX = Number(ev && ev.clientX);
       buttonDown = true;
       detentIndex = snap.officialIndex;
       snapIndex = null;
@@ -1694,6 +1673,10 @@ export function createUpstreamEffort() {
       if (!dragging) return;
       if (ev && ev.buttons === 0 && !buttonDown) return;
       swallowEvent(ev);
+      var cx = Number(ev && ev.clientX);
+      if (!hasDragged && (!Number.isFinite(downClientX) || !Number.isFinite(cx) || Math.abs(cx - downClientX) >= 1)) {
+        hasDragged = true;
+      }
       moveToClientX(ev.clientX, false);
     }
 

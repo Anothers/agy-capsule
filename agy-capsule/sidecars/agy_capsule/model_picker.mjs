@@ -1,4 +1,4 @@
-import { effortEffects, mountEffortBar } from './effort_bar.mjs';
+import { effortEffects, mountEffortBar, mountOrchestratorSwitch } from './effort_bar.mjs';
 
 // The desktop host owns the options and the selection. Re-read both from the
 // current button before writing; a retained composer may belong to another chat.
@@ -258,12 +258,11 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   panel.setAttribute('role', 'menu');
   const options = document.createElement('div');
   options.className = 'dk-model-list';
-  const orchestratorSwitch = document.createElement('button');
-  orchestratorSwitch.type = 'button';
-  orchestratorSwitch.className = 'dk-orchestrator-switch';
-  orchestratorSwitch.setAttribute('role', 'switch');
-  orchestratorSwitch.innerHTML = 'Orchestrator<span class="dk-orchestrator-track" aria-hidden="true"></span>';
-  orchestratorSwitch.hidden = true;
+  let effortBar = null;
+  const orchestratorControl = mountOrchestratorSwitch(
+    () => void commitSelection(null, 'switch'),
+    (x, y, target) => effortBar?.openSettings?.(x, y, target),
+  );
   const status = document.createElement('div');
   status.setAttribute('role', 'status');
   const sub = document.createElement('div');
@@ -278,7 +277,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   tip.className = 'dk-model-tip';
   tip.popover = 'manual';
   tip.setAttribute('role', 'tooltip');
-  panel.append(options, orchestratorSwitch, status, sub, tiers, tip);
+  panel.append(options, orchestratorControl.element, status, sub, tiers, tip);
   root.prepend(button, panel);
   button.popoverTargetElement = panel;
 
@@ -330,7 +329,6 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   let currentEffortOptions = effortOptions;
   let currentEffortLabels = [];
   const rememberedEffort = new Map();
-  let effortBar = null;
   let renderedGroups = new Map();
   let currentSelected = state.selected;
   let openSubRow = null;
@@ -600,6 +598,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     dispose() {
       clearTimeout(expiry);
       close();
+      orchestratorControl.dispose();
       effortBar?.setOpen(false);
       button.remove();
       panel.remove();
@@ -685,14 +684,18 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
         options.removeAttribute('role');
         options.removeAttribute('aria-label');
       }
-      orchestratorSwitch.hidden = !(currentEffortCaption && next.orchestrator);
-      orchestratorSwitch.disabled = !switchTarget(next);
-      orchestratorSwitch.setAttribute('aria-disabled', String(orchestratorSwitch.disabled || pending !== null));
-      orchestratorSwitch.setAttribute('aria-checked', String(next.orchestrator?.active === true));
+      const showOrchestrator = Boolean(currentEffortCaption && next.orchestrator);
+      const orchDisabled = !switchTarget(next);
+      orchestratorControl.setState({
+        visible: showOrchestrator,
+        disabled: orchDisabled,
+        ariaDisabled: orchDisabled || pending !== null,
+        checked: next.orchestrator?.active === true,
+      });
       if (effortGroup) {
         if (!effortBar) {
           effortBar = mountEffortBar(label => void commitSelection(label, 'effort'));
-          orchestratorSwitch.after(effortBar.element);
+          orchestratorControl.element.after(effortBar.element);
         }
         effortBar.refresh(effortGroup, next.selected, pending, currentEffortCaption, currentEffortOptions);
         effortBar.setOpen(panel.matches(':popover-open'));
@@ -703,7 +706,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
       }
 
       const hiddenSet = new Set(currentHidden);
-      const modelGroups = orchestratorSwitch.hidden ? groups : groups.filter(group => !group.planners);
+      const modelGroups = !showOrchestrator ? groups : groups.filter(group => !group.planners);
       const filtered = modelGroups.filter(group => !hiddenSet.has(group.familyName));
       const visibleGroups = filtered.length > 0 ? filtered : modelGroups;
 
@@ -867,7 +870,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   };
 
   panel.addEventListener('beforetoggle', event => {
-    if (event.newState !== 'open') { hideTip(); hideSub(); effortBar?.setOpen(false); return; }
+    if (event.newState !== 'open') { hideTip(); hideSub(); orchestratorControl.setOpen(false); effortBar?.setOpen(false); return; }
     picker.sync();
     if (root._modelPicker !== picker) return;
     const rect = button.getBoundingClientRect();
@@ -875,10 +878,12 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     panel.style.left = Math.max(6, Math.min(rect.left, innerWidth - estWidth - 6)) + 'px';
     panel.style.bottom = Math.max(6, innerHeight - rect.top + 6) + 'px';
     panel.style.maxHeight = Math.max(48, rect.top - 12) + 'px';
+    orchestratorControl.setOpen(true);
     effortBar?.setOpen(true);
   });
   panel.addEventListener('toggle', event => {
-    if (event.newState !== 'open') { hideTip(); hideSub(); }
+    if (event.newState !== 'open') { hideTip(); hideSub(); orchestratorControl.setOpen(false); }
+    else orchestratorControl.setOpen(true);
   });
   options.addEventListener('pointerover', event => {
     const info = event.target.closest('.dk-mp-info[data-tip]');
@@ -956,7 +961,6 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     const choice = event.target.closest('button[data-label]');
     if (choice) void commitSelection(choice.dataset.label);
   });
-  orchestratorSwitch.addEventListener('click', () => void commitSelection(null, 'switch'));
 
   picker.refresh(state, currentCaption, currentUnconfirmed);
 }

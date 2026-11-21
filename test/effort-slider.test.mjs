@@ -29,15 +29,24 @@ function makeElement() {
   };
 }
 
-function mountSlider(baseName, startingEffort) {
+function mountSlider(baseName, startingEffort, mode = 'fast') {
   const frames = new Map();
   const elements = new Map();
   const levels = [{ effort: 'low', label: 'Low' }, { effort: 'medium', label: 'Medium' }, { effort: 'high', label: 'High' }];
   const counters = { seatReads: 0, styleReads: 0, rectReads: 0, contextReads: 0, paints: 0 };
   const resize = { disconnected: false };
   const motion = { matches: false };
+  const store = new Map([['agy-capsule.effort-bar.v1', JSON.stringify({ v: 1, motion: mode })]]);
   let frameId = 0;
+  let now = 1;
   const window = {
+    localStorage: {
+      getItem: k => store.get(k) ?? null,
+      setItem: (k, v) => store.set(k, v),
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() {},
     ResizeObserver: class {
       constructor(callback) { resize.update = rect => callback([{ contentRect: rect }]); }
       observe(target) { resize.target = target; }
@@ -47,7 +56,7 @@ function mountSlider(baseName, startingEffort) {
     cancelAnimationFrame: id => frames.delete(id),
     matchMedia: () => motion,
     getComputedStyle() { counters.styleReads++; return { backgroundColor: 'rgb(20, 20, 20)' }; },
-    performance: { now: () => 1 },
+    performance: { now: () => now },
   };
   const document = {
     body: makeElement(),
@@ -95,6 +104,7 @@ function mountSlider(baseName, startingEffort) {
   return {
     slider, value, root, track: root.children[0], selections, canvas: elements.get('canvas'), frames, resize, counters, motion,
     tick(time) {
+      now = time;
       const scheduled = [...frames.values()];
       frames.clear();
       for (const callback of scheduled) callback(time);
@@ -194,4 +204,77 @@ test('Claude frames reuse observed dimensions and redraw on resize in reduced-mo
   assert.equal(frames.size, 0);
   slider.unmount();
   assert.equal(resize.disconnected, true);
+});
+
+test('effort bar settings schema normalizes orchestratorStyle and orchestratorIcon choices', () => {
+  const store = new Map();
+  const win = {
+    localStorage: {
+      getItem: k => store.get(k) ?? null,
+      setItem: (k, v) => store.set(k, v),
+    },
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent() {},
+  };
+  const upstream = createUpstreamEffort();
+  assert.equal(upstream.readSettings(win).orchestratorStyle, 'helix');
+  assert.equal(upstream.readSettings(win).orchestratorIcon, 'prism');
+
+  for (const style of ['nebula', 'beam', 'helix', 'dock', 'orb']) {
+    upstream.writeSettings({ orchestratorStyle: style }, win);
+    assert.equal(upstream.readSettings(win).orchestratorStyle, style);
+  }
+  for (const icon of ['prism', 'gravity', 'semicircle', 'none']) {
+    upstream.writeSettings({ orchestratorIcon: icon }, win);
+    assert.equal(upstream.readSettings(win).orchestratorIcon, icon);
+  }
+  upstream.writeSettings({ orchestratorStyle: 'invalid', orchestratorIcon: 'invalid' }, win);
+  assert.equal(upstream.readSettings(win).orchestratorStyle, 'helix');
+  assert.equal(upstream.readSettings(win).orchestratorIcon, 'prism');
+
+  assert.equal(upstream.readSettings(win).motion, 'fast');
+  upstream.writeSettings({ motion: 'full' }, win);
+  assert.equal(upstream.readSettings(win).motion, 'full');
+  upstream.writeSettings({ motion: 'fast' }, win);
+  assert.equal(upstream.readSettings(win).motion, 'fast');
+  upstream.writeSettings({ motion: 'quick' }, win);
+  assert.equal(upstream.readSettings(win).motion, 'fast');
+});
+
+test('tapping glides smoothly from the current position without teleporting, and fast finishes sooner than full', t => {
+  const runTap = mode => {
+    const { slider, track, selections, frames, tick } = mountSlider('Gemini', 'low', mode);
+    t.after(() => slider.unmount());
+    track.dispatch('pointerdown', pointer(266));
+    assert.equal(track.style['--ces-fill'], 'calc(14px + (100% - 28px) * 0)', 'knob stays at origin on pointerdown rather than teleporting');
+    assert.ok(frames.size > 0, 'schedules rAF glide immediately');
+    track.dispatch('pointerup', pointer(266));
+    assert.deepEqual(selections, ['high']);
+    let count = 0;
+    for (let time = 17; frames.size > 0 && count < 120; time += 16) {
+      tick(time);
+      count++;
+    }
+    assert.equal(frames.size, 0, 'glide settles completely');
+    assert.equal(track.style['--ces-fill'], 'calc(14px + (100% - 28px) * 1)');
+    return count;
+  };
+  const fastFrames = runTap('fast');
+  const fullFrames = runTap('full');
+  assert.ok(fastFrames >= 3 && fastFrames < fullFrames, `expected fast (${fastFrames}) to glide and finish sooner than full (${fullFrames})`);
+});
+
+test('both fast and full use the 1/2 midpoint rule without 1/3 ratchet or flick inertia', t => {
+  for (const mode of ['fast', 'full']) {
+    const { slider, track, selections, tick } = mountSlider('Gemini', 'low', mode);
+    t.after(() => slider.unmount());
+    // Move to 40% of the first interval (past 1/3, before 1/2 midpoint) quickly (as a flick)
+    track.dispatch('pointerdown', pointer(14));
+    tick(17);
+    track.dispatch('pointermove', pointer(64.4)); // 14 + 0.20 * 252 (between Low=0 and Medium=0.5)
+    tick(33);
+    track.dispatch('pointerup', pointer(64.4));
+    assert.deepEqual(selections, [], `${mode}: below 1/2 midpoint does not advance even past 1/3 or on fast move`);
+  }
 });
