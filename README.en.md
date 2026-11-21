@@ -64,7 +64,7 @@ Replaces the footer’s model button with a panel that matches the native look. 
 
 ## Usage history
 
-An optional block at the bottom of the sidebar statistics (controlled from a dedicated section at the bottom of Settings) that adds up the token usage recorded in this product folder's local conversations.
+An optional section at the bottom of the sidebar’s Statistics page.
 
 ☑ **Token activity**: Shows today's, this week's, this month's and all-time usage, and an activity map of the past year that switches between Daily (one cell per day) and Weekly (one cell per week); a darker cell means more usage. A narrow sidebar keeps only the most recent weeks. Point at a summary total or a cell to see its request count and the split across uncached input, cache reads, cache writes and output.
 
