@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { readPickerState, resolveInheritedLabel, syncModelPicker } from './model_picker.mjs';
+import { createMotionThemes, motionThemes } from './motion_themes.mjs';
 import { EFFORT_BAR_CSS, effortEffects, mountEffortBar, mountOrchestratorSwitch } from './effort_bar.mjs';
 import { createUpstreamEffort } from './effort_upstream.mjs';
 import { readCloudTrajectory } from './cloud_telemetry.mjs';
@@ -136,11 +137,11 @@ function pageMount(d, childAnchor = null) {
   }
 
   // Upgrade or initialize DOM structure in-place
-  if (root.getAttribute('data-deck-ver') !== '135') {
+  if (root.getAttribute('data-deck-ver') !== '138') {
     release(root);
     root._pinnedGroup = null;
     root.removeAttribute('data-pinned');
-    root.setAttribute('data-deck-ver', '135');
+    root.setAttribute('data-deck-ver', '138');
     root._speedActivity = null;
     root._motionPrev = null;
     root.style.cssText = [
@@ -211,6 +212,7 @@ function pageMount(d, childAnchor = null) {
         }
         .dk-model-options::-webkit-scrollbar { display: none; }
         .dk-model-options:has(> .agy-effort) { min-width: min(212px, calc(100vw - 12px)); }
+        .dk-model-options > :is(.agy-effort, .dk-orch-slot) { contain: inline-size; }
         .dk-model-options > .agy-effort { margin: 5px 0 1px; }
         ${EFFORT_BAR_CSS}
         .dk-model-list { display: flex; flex-direction: column; gap: 1px; }
@@ -245,8 +247,16 @@ function pageMount(d, childAnchor = null) {
         .dk-model-row:disabled,
         .dk-model-sub-item:disabled { opacity: 0.55; cursor: progress; }
         .dk-model-main { display: inline-flex; align-items: center; gap: 6px; min-width: 0; flex: 1; }
+        .dk-mp-dot { width: 5.5px; height: 5.5px; border-radius: 50%; flex-shrink: 0; opacity: 0.72; transition: opacity 0.12s ease, transform 0.12s ease; }
+        .dk-model-row:hover .dk-mp-dot,
+        .dk-model-row[aria-pressed="true"] .dk-mp-dot { opacity: 1; transform: scale(1.18); }
         .dk-model-main .dk-mp-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .dk-model-main .dk-mp-effort { flex-shrink: 0; color: inherit; opacity: 0.7; font-weight: 350; }
+        .dk-mp-tier { display: inline-grid; white-space: nowrap; }
+        .dk-mp-tier > span { grid-area: 1 / 1; }
+        .dk-mp-tier > [data-size-tier] { visibility: hidden; }
+        .dk-mp-tier > [data-size-tier]::before { content: attr(data-size-tier); }
+        .dk-model-options[data-effort-mode="true"] [data-size-tier] { font-weight: 600; }
         .dk-model-main .dk-mp-orchestrator { flex-shrink: 0; }
         .dk-model-main .dk-mp-planner { flex-shrink: 1; min-width: 0; }
         .dk-mp-badge {
@@ -260,6 +270,7 @@ function pageMount(d, childAnchor = null) {
         .dk-mp-info:hover { opacity: 1; }
         .dk-mp-info-svg { width: 12px; height: 12px; display: block; }
         .dk-mp-end { display: inline-flex; align-items: center; flex-shrink: 0; color: var(--muted-foreground, #8e8e93); }
+        .dk-model-row > .dk-mp-end { width: 14px; }
         .dk-model-row[aria-pressed="true"] .dk-mp-end,
         .dk-model-sub-item[aria-pressed="true"] .dk-mp-end { color: var(--foreground, CanvasText); }
         .dk-mp-check { width: 14px; height: 14px; display: block; }
@@ -1022,6 +1033,7 @@ function pageMount(d, childAnchor = null) {
       else contextPill.appendChild(pillSpeed);
     }
   } else {
+    effortEffects().applySidecarPrefs(d.prefs, window);
     syncModelPicker(root, footerLeft, d.prefs, labels, findFooterLeft,
       presentation.dictionaries[d.prefs?.settingsLanguage] || labels);
   }
@@ -1684,8 +1696,16 @@ function installRuntime(owner, hash) {
           }
         } catch {}
       }
-      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies,
+      let effortSync = null;
+      try { effortSync = effortEffects().readPendingPatch(); } catch {}
+      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync,
         conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], loadedSubagentIds: [...children.keys()] };
+    },
+    ackEffortSync(caller, rev) {
+      if (caller < owner) return 'superseded';
+      if (caller !== owner || disposed) return false;
+      try { effortEffects().ackPendingPatch(rev); } catch {}
+      return true;
     },
     readCloudTelemetry(caller, path, convId) {
       if (caller < owner) return 'superseded';
@@ -1729,7 +1749,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, createMotionThemes, motionThemes, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const effortBar = `const EFFORT_BAR_CSS=${JSON.stringify(EFFORT_BAR_CSS)};`;
   const source = getPresentationScript() + '\n' + effortBar + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
@@ -1918,6 +1938,12 @@ export function startDeckInjector(inspect, options = {}) {
           }
           if (state === 'superseded') return await supersede();
           if (state?.owner !== owner || !state.path) { failed++; continue; }
+          if (state.effortSync?.patch && typeof state.effortSync.patch === 'object') {
+            try { options.onEffortSettingsPatch?.(state.effortSync.patch); } catch {}
+            const acked = await run(`globalThis.__agyCapsuleDeck?.ackEffortSync(${owner},${Number(state.effortSync.rev) || 0})??false`);
+            if (acked === 'superseded') return await supersede();
+            if (stopped) break;
+          }
           const childIds = Array.isArray(state.subagentIds) ? state.subagentIds.filter(id => typeof id === 'string' && /^[0-9a-f-]{36}$/i.test(id)) : [];
           if (state.hasFooter !== true && !childIds.length) { noAnchor++; continue; }
           const mainId = state.conversationId || state.path.match(/\/c\/([0-9a-f-]{36})/i)?.[1] || '';

@@ -228,6 +228,7 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.ok(!UI_HTML.includes('data-i18n="previewKeepZero"'));
   assert.ok(!UI_HTML.includes('pv-err-pop'));
   for (const key of Object.keys(DEFAULT_SETTINGS)) {
+    if (key === 'codexTheme') continue; // Codex's Orchestrator follow style is only configurable from the right-click menu.
     assert.ok(['data-setting-card', 'data-pick-setting', 'data-toggle-setting', 'data-order-setting', 'data-input-setting'].some(attr => UI_HTML.includes(`${attr}="${key}"`)), `missing setting item for ${key}`);
   }
   const settingsHtml = UI_HTML.slice(UI_HTML.indexOf('<section class="settings'));
@@ -248,7 +249,7 @@ test('sidebar settings use flat dividers, same-row appearance blocks, refined ca
   assert.ok(UI_HTML.includes('id="help-language-scope"') && UI_HTML.includes('id="help-notify-cdp-restart"') && UI_HTML.includes('id="help-speed-pair"') && UI_HTML.includes('id="help-request-metrics"') && UI_HTML.includes('id="help-turn-metrics"') && UI_HTML.includes('id="help-usage-scope"'));
   assert.ok(!UI_HTML.includes('class="settings-note"'));
   assert.match(settingsHtml, /data-setting-card="language"[\s\S]*?class="setting-help-dot"[\s\S]*?id="help-language-scope"[^>]*data-i18n="languageScopeNote"/);
-  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, 7, 'only 7 concise ? help dots should remain');
+  assert.equal((settingsHtml.match(/class="setting-help-dot"/g) || []).length, 8, 'includes the native model capsule help dot');
   assert.ok(UI_HTML.includes('data-preview-group="turn"') && !UI_HTML.includes('data-preview-group="request"'));
   assert.equal(ui.dictionaries.en.showRequestMetrics, 'Last request');
   assert.equal(ui.dictionaries.en.turnMetrics, 'Last turn');
@@ -447,7 +448,7 @@ test('failure panel shares matched height and quota-style placement; countdown s
 
 test('help dots, disabled option controls, turn preview short labels, and convId validation stay consistent', async () => {
   const settingsHtml = UI_HTML.slice(UI_HTML.indexOf('<section class="settings'));
-  assert.equal((settingsHtml.match(/<span class="setting-help-dot" aria-hidden="true">\?<\/span>/g) || []).length, 7);
+  assert.equal((settingsHtml.match(/<span class="setting-help-dot" aria-hidden="true">\?<\/span>/g) || []).length, 8);
   assert.doesNotMatch(settingsHtml, /<button[^>]*setting-help-dot/);
   assert.doesNotMatch(UI_HTML, /\.setting-help-dot\s*\{[^}]*margin-left:\s*auto/);
   assert.match(UI_HTML, /\.metric-setting > \.setting-head \{ justify-content: flex-start; \}/);
@@ -551,4 +552,44 @@ test('cache warning thresholds, cache indicator (icon/ring/bar) and queue warnin
   assert.match(UI_HTML, /\.setting-thresholds \{ display: inline-flex; align-items: center; gap: 5px; min-width: 0;/);
   assert.match(UI_HTML, /\.setting-threshold-card\[data-checked="false"\] \.setting-thresholds \{ opacity: \.42; pointer-events: none; \}/);
   assert.match(UI_HTML, /select\.addEventListener\('input', \(\) => \{/);
+});
+
+test('sidebar has a Models tab with validated motion settings while keeping speedAnimation in Settings', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'agy-fx-settings-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const store = createSettingsStore(join(dir, 'settings.json'));
+  const saved = store.update({
+    effortMotion: 'full',
+    effortTicks: 'dim',
+    effortTheme: 'gemini',
+    geminiTheme: 'nebula',
+    claudeTheme: 'spark',
+    codexTheme: 'orb',
+    orchestratorMode: 'custom3d',
+    orchestrator3dStyle: 'c-spark',
+    orchestratorIcon: 'gravity',
+  });
+  assert.equal(saved.effortMotion, 'full');
+  assert.equal(saved.effortTicks, 'dim');
+  assert.equal(saved.effortTheme, 'gemini');
+  assert.equal(saved.geminiTheme, 'nebula');
+  assert.equal(saved.claudeTheme, 'spark');
+  assert.equal(saved.codexTheme, 'orb');
+  assert.equal(saved.orchestratorMode, 'custom3d');
+  assert.equal(saved.orchestrator3dStyle, 'c-spark');
+  assert.equal(saved.orchestratorIcon, 'gravity');
+  const invalid = store.update({ effortMotion: 'bogus', geminiTheme: 'bogus', orchestrator3dStyle: 'bogus' });
+  assert.equal(invalid.effortMotion, 'full');
+  assert.equal(invalid.geminiTheme, 'nebula');
+  assert.equal(invalid.orchestrator3dStyle, 'c-spark');
+
+  assert.ok(UI_HTML.includes('id="sidebar-tab-fx"'));
+  assert.ok(UI_HTML.includes('id="sidebar-fx"'));
+  assert.ok(UI_HTML.includes('id="fx-orch-stage"') && UI_HTML.includes('id="fx-preview-rows"'));
+  const settingsOnly = UI_HTML.slice(UI_HTML.indexOf('id="sidebar-settings"'), UI_HTML.indexOf('id="sidebar-fx"'));
+  const fxOnly = UI_HTML.slice(UI_HTML.indexOf('id="sidebar-fx"'), UI_HTML.indexOf('</main>'));
+  assert.ok(settingsOnly.includes('data-setting-card="speedAnimation"'), 'speedAnimation remains in Settings tab');
+  assert.ok(!fxOnly.includes('speedAnimation'), 'Models tab does not take speedAnimation');
+  assert.ok(fxOnly.includes('data-setting-card="showModelDots"') && fxOnly.includes('data-setting-card="effortTheme"') && fxOnly.includes('data-setting-card="geminiTheme"') && fxOnly.includes('data-setting-card="claudeTheme"'));
+  assert.ok(fxOnly.includes('data-setting-card="orchestratorMode"') && fxOnly.includes('data-setting-card="orchestrator3dStyle"'));
 });

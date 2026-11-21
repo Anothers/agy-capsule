@@ -2,8 +2,10 @@
 // Copyright (c) 2026 月上寒. MIT; see ../../THIRD-PARTY-NOTICES.md.
 // Upstream c45c3fccaba43d238bce22d5023d7233e4be5ec1, lib/client.js (UI only).
 // Animation replay and canvas geometry optimizations adapted from upstream 70ebd41.
+import { motionThemes } from './motion_themes.mjs';
 
 export function createUpstreamEffort() {
+  var mt = motionThemes();
   var globalRoot = globalThis;
   var TRACK_HEIGHT = 28;
   var KNOB_SIZE = 28;
@@ -74,8 +76,12 @@ export function createUpstreamEffort() {
   var SETTINGS_VERSION = 1;
 
   var SETTINGS_SCHEMA = Object.freeze([
-    { key: "theme", defaultValue: "auto", options: [{ value: "auto" }, { value: "codex" }, { value: "claude" }] },
-    { key: "orchestratorStyle", defaultValue: "helix", options: [{ value: "nebula" }, { value: "beam" }, { value: "helix" }, { value: "dock" }, { value: "orb" }] },
+    { key: "theme", defaultValue: "auto", options: [{ value: "auto" }, { value: "gemini" }, { value: "claude" }, { value: "codex" }] },
+    { key: "geminiTheme", defaultValue: "physical", options: [{ value: "physical" }, { value: "ribbon" }, { value: "nebula" }] },
+    { key: "claudeTheme", defaultValue: "matrix", options: [{ value: "matrix" }, { value: "bars" }, { value: "spark" }] },
+    { key: "codexTheme", defaultValue: "nebula", options: [{ value: "nebula" }, { value: "beam" }, { value: "orb" }] },
+    { key: "orchestratorMode", defaultValue: "follow", options: [{ value: "follow" }, { value: "dock" }, { value: "custom3d" }] },
+    { key: "orchestrator3dStyle", defaultValue: "helix", options: [{ value: "chamber" }, { value: "helix" }, { value: "orbital" }, { value: "c-matrix" }, { value: "c-louver" }, { value: "c-spark" }, { value: "nebula" }, { value: "beam" }, { value: "orb" }] },
     { key: "orchestratorIcon", defaultValue: "prism", options: [{ value: "prism" }, { value: "gravity" }, { value: "semicircle" }, { value: "none" }] },
     Object.freeze({
       key: "motion",
@@ -97,6 +103,32 @@ export function createUpstreamEffort() {
       ])
     })
   ]);
+
+  var SIDECAR_TO_LOCAL = Object.freeze({
+    effortTheme: "theme",
+    geminiTheme: "geminiTheme",
+    claudeTheme: "claudeTheme",
+    codexTheme: "codexTheme",
+    orchestratorMode: "orchestratorMode",
+    orchestrator3dStyle: "orchestrator3dStyle",
+    orchestratorIcon: "orchestratorIcon",
+    effortMotion: "motion",
+    effortTicks: "ticks",
+  });
+  var LOCAL_TO_SIDECAR = Object.freeze({
+    theme: "effortTheme",
+    geminiTheme: "geminiTheme",
+    claudeTheme: "claudeTheme",
+    codexTheme: "codexTheme",
+    orchestratorMode: "orchestratorMode",
+    orchestrator3dStyle: "orchestrator3dStyle",
+    orchestratorIcon: "orchestratorIcon",
+    motion: "effortMotion",
+    ticks: "effortTicks",
+  });
+
+  var pendingHostPatch = null;
+  var pendingHostRev = 0;
 
   function schemaDefaults() {
     var out = { v: SETTINGS_VERSION };
@@ -147,11 +179,26 @@ export function createUpstreamEffort() {
     }
   }
 
-  function writeSettings(patch, win) {
+  function writeSettings(patch, win, options) {
     var w = win || (typeof window !== "undefined" ? window : globalRoot);
     var current = readSettings(w);
     var merged = Object.assign({}, current, patch || {});
     var next = normalizeSettings(merged);
+    if (!(options && options.fromSidecar) && patch && typeof patch === "object") {
+      var sidecarDelta = null;
+      var keys = Object.keys(patch);
+      for (var i = 0; i < keys.length; i += 1) {
+        var k = keys[i];
+        var sk = LOCAL_TO_SIDECAR[k];
+        if (!sk) continue;
+        if (!sidecarDelta) sidecarDelta = {};
+        sidecarDelta[sk] = next[k];
+      }
+      if (sidecarDelta) {
+        pendingHostPatch = Object.assign({}, pendingHostPatch || {}, sidecarDelta);
+        pendingHostRev += 1;
+      }
+    }
     var store = resolveStorage(w);
     if (store) {
       try {
@@ -168,6 +215,46 @@ export function createUpstreamEffort() {
       // 忽略无 CustomEvent 构造器的测试环境
     }
     return next;
+  }
+
+  function readPendingPatch() {
+    if (!pendingHostPatch) return null;
+    return { rev: pendingHostRev, patch: Object.assign({}, pendingHostPatch) };
+  }
+
+  function ackPendingPatch(rev) {
+    if (pendingHostPatch && rev === pendingHostRev) {
+      pendingHostPatch = null;
+    }
+  }
+
+  function applySidecarPrefs(prefs, win) {
+    if (!prefs || typeof prefs !== "object") return false;
+    if (pendingHostPatch) return false;
+    var w = win || (typeof window !== "undefined" ? window : globalRoot);
+    var current = readSettings(w);
+    var mapped = {};
+    var changed = false;
+    var sKeys = Object.keys(SIDECAR_TO_LOCAL);
+    for (var i = 0; i < sKeys.length; i += 1) {
+      var sk = sKeys[i];
+      if (!(sk in prefs)) continue;
+      var lk = SIDECAR_TO_LOCAL[sk];
+      mapped[lk] = prefs[sk];
+    }
+    if (!Object.keys(mapped).length) return false;
+    var next = normalizeSettings(Object.assign({}, current, mapped));
+    var nKeys = Object.keys(LOCAL_TO_SIDECAR);
+    for (var j = 0; j < nKeys.length; j += 1) {
+      var key = nKeys[j];
+      if (next[key] !== current[key]) {
+        changed = true;
+        break;
+      }
+    }
+    if (!changed) return false;
+    writeSettings(next, w, { fromSidecar: true });
+    return true;
   }
 
   function onSettingsChange(listener, win) {
@@ -555,11 +642,12 @@ export function createUpstreamEffort() {
    * - 像素亮度：整体 alpha 乘以 (0.45 + 0.55 * intensity)。
    * intensity = 1 时三项系数均为 1，输出与旧版完全一致。
    */
-  function paintDither(ctx, w, h, dark, progress, timeSec, intensity) {
+  function paintDither(ctx, w, h, dark, progress, timeSec, intensity, pal) {
     if (!ctx) return;
     var strength = typeof intensity === "number" ? clamp01(intensity) : 1;
     ctx.clearRect(0, 0, w, h);
     if (strength <= 0 || w <= 0) return;
+    var isCustomClaude = Boolean(pal && pal.core && pal.back && pal.glow);
     // 密度阈值：strength=1 → 1.0（全保留）；strength=0.35 → ~0.51（约一半格子）
     var keepRatio = strength >= 1 ? 1 : 0.25 + 0.75 * strength;
     var alphaMul = 0.45 + 0.55 * strength;
@@ -567,7 +655,21 @@ export function createUpstreamEffort() {
     var s1 = Math.max(0, Math.min(1, k - 0.08));
     var s2 = Math.max(s1, Math.min(1, k + 0.18));
     var wash = ctx.createLinearGradient(0, 0, w, 0);
-    if (dark) {
+    if (isCustomClaude) {
+      var wb = pal.back;
+      var wc = pal.core;
+      if (dark) {
+        wash.addColorStop(0, "rgba(" + wb[0] + "," + wb[1] + "," + wb[2] + ",0)");
+        wash.addColorStop(s1, "rgba(" + wb[0] + "," + wb[1] + "," + wb[2] + ",0)");
+        wash.addColorStop(s2, "rgba(" + wb[0] + "," + wb[1] + "," + wb[2] + ",0.35)");
+        wash.addColorStop(1, "rgba(" + wc[0] + "," + wc[1] + "," + wc[2] + ",0.68)");
+      } else {
+        wash.addColorStop(0, "rgba(" + wc[0] + "," + wc[1] + "," + wc[2] + ",0)");
+        wash.addColorStop(s1, "rgba(" + wc[0] + "," + wc[1] + "," + wc[2] + ",0)");
+        wash.addColorStop(s2, "rgba(" + wc[0] + "," + wc[1] + "," + wc[2] + ",0.42)");
+        wash.addColorStop(1, "rgba(" + wb[0] + "," + wb[1] + "," + wb[2] + ",0.86)");
+      }
+    } else if (dark) {
       wash.addColorStop(0, "rgba(112, 78, 162, 0)");
       wash.addColorStop(s1, "rgba(112, 78, 162, 0)");
       wash.addColorStop(s2, "rgba(118, 84, 169, 0.3)");
@@ -582,7 +684,8 @@ export function createUpstreamEffort() {
     ctx.fillStyle = wash;
     ctx.fillRect(0, 0, w, h);
 
-    var purple = dark ? [208, 192, 246] : [150, 130, 205];
+    var dotCol = isCustomClaude ? (dark ? pal.core : pal.back) : (dark ? [208, 192, 246] : [150, 130, 205]);
+    var hiCol = isCustomClaude ? pal.glow : (dark ? [220, 204, 255] : [247, 243, 255]);
     var cell = h / 6 > 0 ? h / 6 : CLAUDE_CELL;
     var cols = Math.ceil(w / cell);
     var rows = 6;
@@ -632,15 +735,22 @@ export function createUpstreamEffort() {
           var sp = 22 + 66 * t;
           var off = (u - 0.42) * sp;
           if (off > 0) off *= 1.1;
-          var br = 187 - 32 * t;
-          var bg = 184 - 46 * t;
-          var bb = 206 + 4 * t;
-          var lr = br + off;
-          var lg = bg + (off < 0 ? off : off * 1.05);
-          var lb = bb + (off < 0 ? off : off * 0.65);
-          lr = Math.max(124, Math.min(240, Math.round(lr + 12 * pulse)));
-          lg = Math.max(100, Math.min(232, Math.round(lg + 12 * pulse)));
-          lb = Math.max(180, Math.min(252, Math.round(lb + 8 * pulse)));
+          var lr, lg, lb;
+          if (isCustomClaude) {
+            lr = Math.max(40, Math.min(242, Math.round(pal.core[0] + off * 0.45 + 14 * pulse)));
+            lg = Math.max(40, Math.min(238, Math.round(pal.core[1] + off * 0.45 + 14 * pulse)));
+            lb = Math.max(40, Math.min(242, Math.round(pal.core[2] + off * 0.45 + 10 * pulse)));
+          } else {
+            var br = 187 - 32 * t;
+            var bg = 184 - 46 * t;
+            var bb = 206 + 4 * t;
+            lr = br + off;
+            lg = bg + (off < 0 ? off : off * 1.05);
+            lb = bb + (off < 0 ? off : off * 0.65);
+            lr = Math.max(124, Math.min(240, Math.round(lr + 12 * pulse)));
+            lg = Math.max(100, Math.min(232, Math.round(lg + 12 * pulse)));
+            lb = Math.max(180, Math.min(252, Math.round(lb + 8 * pulse)));
+          }
           var lw = cell * (wide ? 2 : 1) * 0.88;
           var lh = cell * (tall ? 2 : 1) * 0.88;
           var flicker = valueNoise(col, row, timeSec, 0.9, 83);
@@ -661,7 +771,7 @@ export function createUpstreamEffort() {
           if (whiteAmt > 0.03) {
             // 除回 alphaMul，让高光核心亮度与 High 一致
             ctx.globalAlpha = Math.min(1, (lAlpha / alphaMul) * (0.12 + 0.88 * whiteAmt));
-            ctx.fillStyle = "rgb(247, 243, 255)";
+            ctx.fillStyle = "rgb(" + hiCol[0] + "," + hiCol[1] + "," + hiCol[2] + ")";
             var ins = lw * 0.14;
             fillRoundRect(ctx, x + 0.5 + ins, y2 + 0.5 + ins, lw - ins * 2, lh - ins * 2, 0.7);
           }
@@ -678,7 +788,7 @@ export function createUpstreamEffort() {
         var y = row * cell;
         var size = cell * 0.72;
         ctx.globalAlpha = Math.min(1, gridAlpha * 0.55);
-        ctx.fillStyle = "rgb(" + purple[0] + "," + purple[1] + "," + purple[2] + ")";
+        ctx.fillStyle = "rgb(" + dotCol[0] + "," + dotCol[1] + "," + dotCol[2] + ")";
         fillRoundRect(ctx, x + 0.5, y + 0.5, size, size, 1.1);
 
         // 同浅色模式：流光亮度不随强度衰减
@@ -689,7 +799,7 @@ export function createUpstreamEffort() {
         }
         if (whiteAmtDark > 0.03) {
           ctx.globalAlpha = Math.min(1, (gridAlpha / alphaMul) * (0.1 + 0.72 * whiteAmtDark));
-          ctx.fillStyle = "rgb(220, 204, 255)";
+          ctx.fillStyle = "rgb(" + hiCol[0] + "," + hiCol[1] + "," + hiCol[2] + ")";
           fillRoundRect(ctx, x + 0.5, y + 0.5, size, size, 0.7);
         }
       }
@@ -846,18 +956,30 @@ export function createUpstreamEffort() {
    * - start < pct <= end    : #4d93f8 -> #9333ea (蓝紫过渡)
    * - end < pct <= 1        : #9333ea -> #4c1d95 (深紫星云)
    */
-  function fillColorFor(pct, startOverride, endOverride, isClaude) {
+  function fillColorFor(pct, startOverride, endOverride, themeOrClaude, pal) {
     var p = clamp01(pct);
     var start = typeof startOverride === "number" && Number.isFinite(startOverride) ? startOverride : ENERGY_START;
     var end = typeof endOverride === "number" && Number.isFinite(endOverride) ? endOverride : ENERGY_END;
-    if (isClaude) {
+    var theme = themeOrClaude === true ? "claude" : (typeof themeOrClaude === "string" ? themeOrClaude : "codex");
+    if (theme === "gemini" && pal && pal.stops) {
+      if (p <= start + 1e-6) return pal.stops[0];
+      if (p <= end + 1e-6) {
+        var gspan1 = Math.max(1e-6, end - start);
+        return mixHex(pal.stops[0], pal.stops[2] || pal.stops[1], (p - start) / gspan1);
+      }
+      var gspan2 = Math.max(1e-6, 1 - end);
+      return mixHex(pal.stops[2] || pal.stops[1], pal.stops[pal.stops.length - 1], (p - end) / gspan2);
+    }
+    if (theme === "claude") {
+      var cMid = (pal && pal.accent) || "#e07b53";
+      var cEnd = (pal && pal.stops && pal.stops[2]) || "#bc5a2e";
       if (p <= start + 1e-6) return "#71717a";
       if (p <= end + 1e-6) {
         var cspan1 = Math.max(1e-6, end - start);
-        return mixHex("#71717a", "#a78bfa", (p - start) / cspan1);
+        return mixHex("#71717a", cMid, (p - start) / cspan1);
       }
       var cspan2 = Math.max(1e-6, 1 - end);
-      return mixHex("#a78bfa", "#704ea2", (p - end) / cspan2);
+      return mixHex(cMid, cEnd, (p - end) / cspan2);
     }
     if (p <= start + 1e-6) return "#4d93f8";
     if (p <= end + 1e-6) {
@@ -872,14 +994,21 @@ export function createUpstreamEffort() {
    * 填充区线性渐变背景：
    * 让轨道左侧始终保留蓝色起点，随滑块向右推进依次展开蓝紫过渡与深紫星云
    */
-  function fillBackgroundFor(pct, startOverride, endOverride, isClaude) {
+  function fillBackgroundFor(pct, startOverride, endOverride, themeOrClaude, pal) {
     var p = clamp01(pct);
     var start = typeof startOverride === "number" && Number.isFinite(startOverride) ? startOverride : ENERGY_START;
     var end = typeof endOverride === "number" && Number.isFinite(endOverride) ? endOverride : ENERGY_END;
-    if (isClaude) {
-      if (p <= 0.05) return "rgba(142, 118, 192, 0.15)";
-      // 末端颜色随位置连续插值（#71717a → #a78bfa → #704ea2），避免过中点时整条填充色突变
-      return "linear-gradient(90deg, rgba(142, 118, 192, 0.25) 0%, " + fillColorFor(p, start, end, true) + " 100%)";
+    var theme = themeOrClaude === true ? "claude" : (typeof themeOrClaude === "string" ? themeOrClaude : "codex");
+    if (theme === "gemini" && pal && pal.stops) {
+      var st = pal.stops;
+      if (p <= start + 1e-6) return st[1] || st[0];
+      return "linear-gradient(90deg, " + st[0] + " 0%, " + st[1] + " 38%, " + st[2] + " 74%, " + st[3] + " 100%)";
+    }
+    if (theme === "claude") {
+      var baseRgb = (pal && pal.core) || [224, 123, 83];
+      var rgbaPrefix = "rgba(" + baseRgb[0] + ", " + baseRgb[1] + ", " + baseRgb[2] + ", ";
+      if (p <= 0.05) return rgbaPrefix + "0.15)";
+      return "linear-gradient(90deg, " + rgbaPrefix + "0.25) 0%, " + fillColorFor(p, start, end, "claude", pal) + " 100%)";
     }
     if (p <= start + 1e-6) return "#4d93f8";
     var endColor = fillColorFor(p, start, end, false);
@@ -910,21 +1039,31 @@ export function createUpstreamEffort() {
    * 档位文字着色：
    * - 单档位锁定模型或 Off 档位保持官方默认灰（返回 ""）
    * - Codex 风格：首档蓝 #4d93f8、中档蓝紫 #6c78f7、高档亮紫 #8b5cf6
-   * - Claude 风格：首档暖灰/柔紫 #94a3b8、中档紫罗兰 #a78bfa、高档亮淡紫 #c4b5fd
+   * - Claude / Gemini 风格：按当前模型/元素调色板柔和渐进
    */
-  function valueColorFor(label, index, count, isMax, hasOffFirst, isClaude) {
+  function valueColorFor(label, index, count, isMax, hasOffFirst, themeOrClaude, baseName) {
     if (isOffLevel(label)) return "";
     var n = Number(count) || 0;
     if (n <= 1) return "";
-    if (isClaude) {
-      if (isMax || index === n - 1) return "#c4b5fd";
+    var settings = readSettings();
+    var theme = typeof themeOrClaude === "string"
+      ? themeOrClaude
+      : themeOrClaude === true
+        ? "claude"
+        : (baseName ? mt.resolveThemeFamily(baseName, settings.theme) : "codex");
+    if (theme === "claude" || theme === "gemini") {
+      var pal = mt.resolvePalette(baseName || (theme === "claude" ? "Claude Opus" : "Gemini Flash"), theme);
+      var lowHex = pal.accentLow || (theme === "claude" ? "#b59385" : "#4d93f8");
+      var midHex = pal.accent || (theme === "claude" ? "#e07b53" : "#a78bfa");
+      var maxHex = pal.accentMax || (theme === "claude" ? "#f4a37f" : "#8b5cf6");
+      if (isMax || index === n - 1) return maxHex;
       var cIdx = typeof index === "number" && index >= 0 ? index : 0;
       var cFirstActive = hasOffFirst ? 1 : 0;
-      if (cIdx <= cFirstActive) return "#94a3b8";
-      if (n === 3 && cIdx === 1) return "#a78bfa";
+      if (cIdx <= cFirstActive) return lowHex;
+      if (n === 3 && cIdx === 1) return midHex;
       var cDenom = Math.max(1, n - 1 - cFirstActive);
       var cT = clamp01((cIdx - cFirstActive) / cDenom);
-      return mixHex("#94a3b8", "#c4b5fd", cT);
+      return mixHex(lowHex, maxHex, cT);
     }
     if (isMax || index === n - 1) return "#8b5cf6";
     var idx = typeof index === "number" && index >= 0 ? index : 0;
@@ -1057,11 +1196,17 @@ export function createUpstreamEffort() {
     // 点阵流动相位（秒）：按「帧间隔 × 当前速度倍率」累加，而不是 elapsed × 倍率，
     // 这样拖动中速度连续变化时波纹不会因倍率突变而跳帧/倒退
     var claudeFlowTime = 0;
+    var claudeClock = 0;
     var claudeLastTs = 0;
     // applyVisualPct 提供绘制状态，ResizeObserver 提供尺寸；绘制帧无需读取档位快照。
     var claudeIntensity = 0;
+    var claudeEnergy = 0;
     var claudeSpeed = 0;
     var claudeFill = 0;
+    var claudeTheme = "codex";
+    var claudeSubTheme = "matrix";
+    var claudePal = mt.CODEX_PALETTE;
+    var claudeMotion = activeSettings.motion || "fast";
     var claudeTrackWidth = claudeCanvasEl.width;
     var claudeTrackHeight = claudeCanvasEl.height;
     var claudeThemeCheckedAt = -Infinity;
@@ -1126,12 +1271,15 @@ export function createUpstreamEffort() {
       var visualMax = count === 1 && levels[0].label === "";
       var stops = energyStopsFor(levels);
       var baseName = (seat && seat.baseName) || (seat && seat.modelName) || "";
-      var theme = activeSettings.theme === "auto" ? (isClaudeModel(baseName) ? "claude" : "codex") : activeSettings.theme;
+      var theme = mt.resolveThemeFamily(baseName, activeSettings.theme);
+      var pal = mt.resolvePalette(baseName, theme);
       var isClaude = theme === "claude";
       return {
         baseName: baseName,
         isClaude: isClaude,
         theme: theme,
+        pal: pal,
+        element: pal.id,
         levels: levels,
         count: count,
         officialIndex: officialIndex,
@@ -1162,16 +1310,18 @@ export function createUpstreamEffort() {
       return motionState;
     }
 
-    function syncHeaderAndTrigger(snap, showIdx) {
+    function syncHeaderAndTrigger(snap, showIdx, energy, pct) {
       var count = snap.count;
       var safeIdx = Math.max(0, Math.min(Math.max(0, count - 1), showIdx));
       var levelItem = snap.levels[safeIdx];
       var label = levelItem ? levelItem.label : "";
       var isMax = snap.visualMax || (!snap.locked && count > 1 && safeIdx === count - 1 && !isOffLevel(label));
+      var accentRgb = (snap.pal && snap.pal.core) ? snap.pal.core.join(", ") : "139, 92, 246";
+      var motionTag = activeSettings.motion || "fast";
 
       // Preview the same max-tier effect on drag, tap, and keyboard changes.
       if (lastShownMax !== null && isMax !== lastShownMax) {
-        if (isMax) triggerMaxEffects(snap.isClaude);
+        if (isMax) triggerMaxEffects(snap.pal, snap.isClaude);
         else clearMaxEffects();
       }
       lastShownMax = isMax;
@@ -1187,6 +1337,12 @@ export function createUpstreamEffort() {
         if (rowEl.getAttribute("data-ces-effort-row") !== "true") {
           rowEl.setAttribute("data-ces-effort-row", "true");
         }
+        if (rowEl.getAttribute("data-motion") !== motionTag) {
+          rowEl.setAttribute("data-motion", motionTag);
+        }
+        if (rowEl.style && typeof rowEl.style.setProperty === "function") {
+          rowEl.style.setProperty("--ces-accent-rgb", accentRgb);
+        }
         if (isMax) {
           if (rowEl.getAttribute("data-ces-max") !== "true") {
             rowEl.setAttribute("data-ces-max", "true");
@@ -1200,7 +1356,7 @@ export function createUpstreamEffort() {
       if (valEl) {
         if (valEl.textContent !== label) {
           valEl.textContent = label;
-          // 无论是 Claude 还是 Codex (Argon / Flash)，文字切换时统一触发顺滑向上翻转动效
+          // 无论是 Claude 还是 Gemini / Codex，文字切换时统一触发顺滑向上翻转动效
           if (label && !prefersReducedMotion(win)) {
             if (valEl.__cesRiseTimer) {
               clearTimeout(valEl.__cesRiseTimer);
@@ -1213,10 +1369,10 @@ export function createUpstreamEffort() {
                 valEl.classList.remove("is-claude-changing");
               }
               valEl.__cesRiseTimer = null;
-            }, 320);
+            }, motionTag === "full" ? 380 : 240);
           }
         }
-        var vColor = snap.locked ? "" : valueColorFor(label, safeIdx, count, isMax, snap.hasOffFirst, snap.isClaude) || "";
+        var vColor = snap.locked ? "" : valueColorFor(label, safeIdx, count, isMax, snap.hasOffFirst, snap.theme, snap.baseName) || "";
         if (valEl.style && valEl.style.color !== vColor) {
           valEl.style.color = vColor;
         }
@@ -1230,7 +1386,12 @@ export function createUpstreamEffort() {
             label: label,
             effort: levelItem ? levelItem.effort : "",
             isMax: isMax,
-            locked: snap.locked
+            locked: snap.locked,
+            baseName: snap.baseName,
+            theme: snap.theme,
+            element: snap.element,
+            energy: typeof energy === "number" ? energy : 0,
+            pct: typeof pct === "number" ? pct : 0
           });
         } catch (err) {
           // 忽略外部视觉回调错误
@@ -1300,11 +1461,18 @@ export function createUpstreamEffort() {
       var now = typeof nowTs === "number" && nowTs > 0 ? nowTs : nowMs();
       var elapsed = Math.max(0, now - claudeAnimStart);
       var reducedMotion = prefersReducedMotion(win);
-      var progress = reducedMotion ? 1 : Math.min(1, elapsed / CLAUDE_SWEEP_MS);
+      var sweepMs = claudeMotion === "full" ? CLAUDE_SWEEP_MS : 640;
+      var progress = reducedMotion ? 1 : Math.min(1, elapsed / sweepMs);
       // 相位按帧累加：dt 上限 50ms，防止切后台回来后一次性跳很远
       var frameDt = claudeLastTs > 0 ? Math.min(0.05, Math.max(0, (now - claudeLastTs) / 1000)) : 0;
       claudeLastTs = now;
-      claudeFlowTime += frameDt * claudeSpeed;
+      var flowMul = claudeMotion === "full" ? 0.74 : 1.25;
+      claudeClock += frameDt * flowMul;
+      if (claudeTheme === "gemini") {
+        claudeFlowTime += frameDt * mt.speedForElement(claudePal, claudeEnergy) * flowMul;
+      } else {
+        claudeFlowTime += frameDt * claudeSpeed * ((claudePal && claudePal.speedMul) || 1) * flowMul;
+      }
       if (now - claudeThemeCheckedAt >= 500) {
         claudeIsDark = surfaceIsDark(win, doc);
         claudeThemeCheckedAt = now;
@@ -1312,11 +1480,27 @@ export function createUpstreamEffort() {
       if (!trackResizeObserver) rememberClaudeTrackSize(trackEl.getBoundingClientRect?.());
       // 画布像素宽度 = 已填充宽度（圆钮中心），与 CSS width: var(--ces-fill) 对齐
       var tw = Math.max(1, Math.round(KNOB_RADIUS + (claudeTrackWidth - KNOB_RADIUS * 2) * claudeFill));
-      if (claudeCanvasEl.width !== tw) claudeCanvasEl.width = tw;
-      if (claudeCanvasEl.height !== claudeTrackHeight) claudeCanvasEl.height = claudeTrackHeight;
+      var dpr = Math.min((win && win.devicePixelRatio) || 1, 2);
+      var pxW = Math.max(1, Math.round(tw * dpr));
+      var pxH = Math.max(1, Math.round(claudeTrackHeight * dpr));
+      if (claudeCanvasEl.width !== pxW) claudeCanvasEl.width = pxW;
+      if (claudeCanvasEl.height !== pxH) claudeCanvasEl.height = pxH;
       if (claudeContext === undefined) claudeContext = claudeCanvasEl.getContext?.("2d") ?? null;
       if (claudeContext) {
-        paintDither(claudeContext, tw, claudeTrackHeight, claudeIsDark, progress, claudeFlowTime, claudeIntensity);
+        if (typeof claudeContext.setTransform === "function") {
+          claudeContext.setTransform(dpr, 0, 0, dpr, 0, 0);
+        }
+        if (claudeTheme === "gemini") {
+          claudeContext.clearRect(0, 0, tw, claudeTrackHeight);
+          mt.paintGeminiSlider(claudeContext, claudePal, claudeSubTheme, tw, claudeTrackHeight, claudeFlowTime, claudeClock, claudeEnergy, { glass: true, glassStrength: 0.62 });
+        } else if (claudeSubTheme === "bars" || claudeSubTheme === "spark") {
+          claudeContext.clearRect(0, 0, tw, claudeTrackHeight);
+          claudeContext.globalAlpha = 0.35 + 0.65 * progress;
+          mt.paintClaudeSlider(claudeContext, claudePal, claudeSubTheme, tw, claudeTrackHeight, claudeFlowTime * 0.72, claudeClock, claudeEnergy, { fillBase: true, glass: true, glassStrength: 0.54 });
+          claudeContext.globalAlpha = 1;
+        } else {
+          paintDither(claudeContext, tw, claudeTrackHeight, claudeIsDark, progress, claudeFlowTime, claudeIntensity, claudePal);
+        }
       }
       if (!reducedMotion && win && typeof win.requestAnimationFrame === "function") {
         claudeRafId = win.requestAnimationFrame(stepClaudeCanvas);
@@ -1340,10 +1524,18 @@ export function createUpstreamEffort() {
       var label = levelItem ? levelItem.label : "";
 
       var theme = snap.theme || "codex";
+      var elementTag = snap.element || "codex";
+      var accentRgb = (snap.pal && snap.pal.core) ? snap.pal.core.join(", ") : "139, 92, 246";
+      var motionTag = activeSettings.motion || "fast";
       if (rootEl.getAttribute("data-theme") !== theme) rootEl.setAttribute("data-theme", theme);
       if (trackEl.getAttribute("data-theme") !== theme) trackEl.setAttribute("data-theme", theme);
-      if (container && container.setAttribute && container.getAttribute("data-theme") !== theme) {
-        container.setAttribute("data-theme", theme);
+      if (rootEl.getAttribute("data-element") !== elementTag) rootEl.setAttribute("data-element", elementTag);
+      if (rootEl.getAttribute("data-motion") !== motionTag) rootEl.setAttribute("data-motion", motionTag);
+      rootEl.style.setProperty("--ces-accent-rgb", accentRgb);
+      if (container && container.setAttribute) {
+        if (container.getAttribute("data-theme") !== theme) container.setAttribute("data-theme", theme);
+        if (container.getAttribute("data-element") !== elementTag) container.setAttribute("data-element", elementTag);
+        if (container.style) container.style.setProperty("--ces-accent-rgb", accentRgb);
       }
 
       // Keep the unlocked slider reachable by keyboard in agy-capsule’s popover.
@@ -1368,7 +1560,7 @@ export function createUpstreamEffort() {
       trackEl.style.cursor = snap.visualMax ? "not-allowed" : "";
 
       var offsetCss = knobOffsetOf(p, KNOB_RADIUS);
-      var fillBg = fillBackgroundFor(p, snap.energyStart, snap.energyEnd, snap.isClaude);
+      var fillBg = fillBackgroundFor(p, snap.energyStart, snap.energyEnd, theme, snap.pal);
       trackEl.style.setProperty("--ces-fill", offsetCss);
       trackEl.style.setProperty("--ces-fill-bg", fillBg);
       fillEl.style.width = offsetCss;
@@ -1377,14 +1569,23 @@ export function createUpstreamEffort() {
       starsEl.style.width = offsetCss;
       knobEl.style.left = offsetCss;
 
-      // Claude 点阵：按圆钮实际位置连续计算强度/速度（Medium ≈0.35 强度、半速；High 全量、全速）
       var animateTrack = !snap.locked || snap.visualMax;
-      claudeIntensity = snap.isClaude && animateTrack ? claudeIntensityFor(p, snap.energyStart) : 0;
+      var energy = animateTrack ? energyForPct(p, snap.energyStart) : 0;
+      var usesCanvas = theme === "claude" || theme === "gemini";
+      var prevSub = claudeSubTheme;
+      var prevTheme = claudeTheme;
+      claudeTheme = theme;
+      claudePal = snap.pal;
+      claudeSubTheme = theme === "gemini" ? (activeSettings.geminiTheme || "physical") : (activeSettings.claudeTheme || "matrix");
+      claudeMotion = motionTag;
+      claudeEnergy = energy;
+      claudeIntensity = usesCanvas && animateTrack
+        ? (theme === "claude" ? claudeIntensityFor(p, snap.energyStart) : (energy > 0 ? energy : 0))
+        : 0;
       claudeSpeed = claudeSpeedFor(p, snap.energyStart);
       claudeFill = p;
       if (claudeIntensity > 0) {
-        if (claudeCanvasEl.style.display !== "block") {
-          // 仅「无特效 → 有特效」时重置入场扫掠；之后拖动只调强度/速度，不重播
+        if (claudeCanvasEl.style.display !== "block" || prevSub !== claudeSubTheme || prevTheme !== claudeTheme) {
           claudeCanvasEl.style.display = "block";
           claudeAnimStart = nowMs();
           claudeLastTs = 0;
@@ -1398,8 +1599,8 @@ export function createUpstreamEffort() {
         stopClaudeCanvasAnimation();
       }
 
-      var energy = animateTrack ? energyForPct(p, snap.energyStart) : 0;
-      var slowdown = motionMode(win, activeSettings) === "quick" ? REDUCED_MOTION_SLOWDOWN : 1;
+      var modeNow = motionMode(win, activeSettings);
+      var slowdown = modeNow === "quick" ? REDUCED_MOTION_SLOWDOWN : modeNow === "full" ? 1.35 : 0.8;
       if (Math.abs(energy - lastAppliedEnergy) > 1e-5 || slowdown !== lastAppliedSlowdown) {
         lastAppliedEnergy = energy;
         lastAppliedSlowdown = slowdown;
@@ -1432,7 +1633,7 @@ export function createUpstreamEffort() {
       }
 
       renderTicks(snap, p);
-      syncHeaderAndTrigger(snap, safeIdx);
+      syncHeaderAndTrigger(snap, safeIdx, energy, p);
     }
 
     function stopFrames() {
@@ -1492,13 +1693,15 @@ export function createUpstreamEffort() {
       }
     }
 
-    function triggerMaxEffects(isClaude) {
+    function triggerMaxEffects(pal, isClaude) {
       if (prefersReducedMotion(win)) return;
 
-      // "High" 文字到达最高档时的模糊光斑爆散 (约 0.4s 淡淡消失)
+      // 到达最高档时的模糊光斑爆散（随快速/慢速调整时长，并匹配当前元素色）
       var valEl = opts.valueElement;
       if (valEl && valEl.classList) {
-        var glowColor = isClaude ? "rgba(196, 181, 253, 0.9)" : "rgba(168, 85, 247, 0.9)";
+        var glowColor = (pal && pal.core)
+          ? "rgba(" + pal.core[0] + ", " + pal.core[1] + ", " + pal.core[2] + ", 0.9)"
+          : (isClaude ? "rgba(224, 123, 83, 0.9)" : "rgba(168, 85, 247, 0.9)");
         if (valEl.style && typeof valEl.style.setProperty === "function") {
           valEl.style.setProperty("--ces-glow-color", glowColor);
         }
@@ -1509,7 +1712,7 @@ export function createUpstreamEffort() {
         valEl.__cesGlowTimer = setTimeout(function () {
           if (valEl && valEl.classList) valEl.classList.remove("is-glowing");
           valEl.__cesGlowTimer = null;
-        }, 450);
+        }, activeSettings.motion === "full" ? 480 : 300);
       }
     }
 
@@ -1830,7 +2033,7 @@ export function createUpstreamEffort() {
     };
   }
 
-  return { mountCodexEffortSlider, readSettings, writeSettings, onSettingsChange, valueColorFor };
+  return { mountCodexEffortSlider, readSettings, writeSettings, onSettingsChange, valueColorFor, applySidecarPrefs, readPendingPatch, ackPendingPatch };
 }
 
 export const UPSTREAM_EFFORT_CSS = `
@@ -1873,11 +2076,11 @@ export const UPSTREAM_EFFORT_CSS = `
   cursor: pointer;
   touch-action: none;
   box-sizing: border-box;
-  transition: opacity 0.15s ease, box-shadow 0.2s ease;
+  transition: opacity 0.15s ease, box-shadow 0.2s ease, border-radius 0.18s ease;
 }
 .ces-inline[data-energy='1'] .ces-track,
 .ces-root[data-energy='1'] .ces-track {
-  box-shadow: 0 0 calc(var(--ces-energy, 0) * 16px) rgba(168, 85, 247, 0.5), inset 0 1px 2px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 0 calc(var(--ces-energy, 0) * 14px) rgba(var(--ces-accent-rgb, 168, 85, 247), 0.42), inset 0 1px 2px rgba(0, 0, 0, 0.24);
 }
 .ces-inline[data-energy='0'] .ces-star,
 .ces-inline[data-energy='0'] .ces-energy__sweep,
@@ -1914,12 +2117,18 @@ export const UPSTREAM_EFFORT_CSS = `
   transition: opacity 0.2s ease;
   background: linear-gradient(90deg, #3b1178 0%, #6d28d9 30%, #9333ea 62%, #c084fc 100%);
 }
+.ces-root {
+  --ces-sweep-dur: 1.92s;
+}
+.ces-root[data-motion='full'] {
+  --ces-sweep-dur: 3.24s;
+}
 .ces-energy__sweep {
   position: absolute;
   inset: 0;
   background: linear-gradient(100deg, transparent 18%, rgba(255, 255, 255, 0.30) 50%, transparent 82%);
   transform: translateX(100%);
-  animation: ces-sweep 2.4s linear infinite;
+  animation: ces-sweep var(--ces-sweep-dur, 1.92s) linear infinite;
   pointer-events: none;
 }
 .ces-stars {
@@ -1993,6 +2202,21 @@ export const UPSTREAM_EFFORT_CSS = `
   pointer-events: none;
   will-change: left;
 }
+/* ── Gemini 元素主题适配 (data-theme='gemini') ── */
+.ces-root[data-theme='gemini'] .ces-stars,
+.ces-root[data-theme='gemini'] .ces-energy,
+.ces-inline[data-theme='gemini'] .ces-stars,
+.ces-inline[data-theme='gemini'] .ces-energy {
+  display: none !important;
+}
+.ces-root[data-theme='gemini'] .ces-claude-canvas,
+.ces-inline[data-theme='gemini'] .ces-claude-canvas {
+  border-radius: 14px 0 0 14px;
+}
+.ces-root[data-theme='gemini'][data-energy='1'] .ces-claude-canvas,
+.ces-inline[data-theme='gemini'][data-energy='1'] .ces-claude-canvas {
+  display: block;
+}
 /* ── Claude 专属主题适配 (data-theme='claude') ── */
 .ces-root[data-theme='claude'] .ces-stars,
 .ces-root[data-theme='claude'] .ces-energy,
@@ -2003,13 +2227,17 @@ export const UPSTREAM_EFFORT_CSS = `
 .ces-root[data-theme='claude'] .ces-track,
 .ces-inline[data-theme='claude'] .ces-track {
   height: 28px;
-  border-radius: 999px;
+  border-radius: 9px;
   background: rgba(128, 128, 145, 0.16);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.22), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
+.ces-root[data-theme='claude'] .ces-fill,
+.ces-inline[data-theme='claude'] .ces-fill {
+  border-radius: 9px 0 0 9px;
+}
 .ces-root[data-theme='claude'][data-energy='1'] .ces-track,
 .ces-inline[data-theme='claude'][data-energy='1'] .ces-track {
-  box-shadow: 0 0 16px rgba(167, 139, 250, 0.45), inset 0 1px 2px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 0 14px rgba(var(--ces-accent-rgb, 224, 123, 83), 0.42), inset 0 1px 2px rgba(0, 0, 0, 0.22);
 }
 .ces-root[data-theme='claude'] .ces-knob,
 .ces-inline[data-theme='claude'] .ces-knob {
@@ -2040,7 +2268,7 @@ export const UPSTREAM_EFFORT_CSS = `
   top: 0;
   width: var(--ces-fill, 0px);
   height: 100%;
-  border-radius: 999px;
+  border-radius: 9px 0 0 9px;
   display: none;
   pointer-events: none;
 }
@@ -2054,14 +2282,22 @@ export const UPSTREAM_EFFORT_CSS = `
   80% { transform: translateY(-6%) scale(1.01); }
   100% { transform: translateY(0) scale(1); opacity: 1; }
 }
+.ces-ag-effort-row {
+  --ces-rise-dur: 0.20s;
+  --ces-glow-dur: 0.28s;
+}
+.ces-ag-effort-row[data-motion='full'] {
+  --ces-rise-dur: 0.34s;
+  --ces-glow-dur: 0.45s;
+}
 .ces-ag-effort-value.is-claude-changing,
 .ces-ag-effort-value.ces-text-rise {
-  animation: ces-claude-rise 0.3s cubic-bezier(0.2, 0.85, 0.25, 1) forwards;
+  animation: ces-claude-rise var(--ces-rise-dur, 0.24s) cubic-bezier(0.2, 0.85, 0.25, 1) forwards;
 }
 /* 当同时触发文字向上翻转与 High 光斑爆散时，以 CSS 复合动画并发执行，防止相互覆盖打断 */
 .ces-ag-effort-value.is-claude-changing.is-glowing,
 .ces-ag-effort-value.ces-text-rise.is-glowing {
-  animation: ces-claude-rise 0.3s cubic-bezier(0.2, 0.85, 0.25, 1) forwards, ces-text-bloom 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: ces-claude-rise var(--ces-rise-dur, 0.24s) cubic-bezier(0.2, 0.85, 0.25, 1) forwards, ces-text-bloom var(--ces-glow-dur, 0.36s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 /* Antigravity 原生模型菜单底部专属「推理等级」区域 */
 .ces-ag-section,
@@ -2092,8 +2328,8 @@ export const UPSTREAM_EFFORT_CSS = `
   background-color: rgba(128, 128, 145, 0.08);
 }
 .ces-ag-effort-row[data-ces-max='true'], [data-ces-effort-row='true'][data-ces-max='true'] {
-  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.42), 0 0 14px -4px rgba(139, 92, 246, 0.45) !important;
-  background-color: rgba(139, 92, 246, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(var(--ces-accent-rgb, 139, 92, 246), 0.42), 0 0 14px -4px rgba(var(--ces-accent-rgb, 139, 92, 246), 0.42) !important;
+  background-color: rgba(var(--ces-accent-rgb, 139, 92, 246), 0.06);
 }
 .ces-ag-effort-head {
   display: flex;
@@ -2111,7 +2347,7 @@ export const UPSTREAM_EFFORT_CSS = `
   font-weight: 500;
   opacity: 0.9;
 }
-/* ── 'High' 档位文字到达最高档时的模糊光斑爆散 (约 0.4s 淡淡消失) ── */
+/* ── 'High' 档位文字到达最高档时的模糊光斑爆散 ── */
 .ces-ag-effort-value {
   position: relative;
   z-index: 1;
@@ -2158,10 +2394,10 @@ export const UPSTREAM_EFFORT_CSS = `
   100% { text-shadow: none; }
 }
 .ces-ag-effort-value.is-glowing {
-  animation: ces-text-bloom 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: ces-text-bloom var(--ces-glow-dur, 0.36s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 .ces-ag-effort-value.is-glowing::after {
-  animation: ces-glow-flash 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: ces-glow-flash var(--ces-glow-dur, 0.36s) cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 @media (prefers-reduced-motion: reduce) {
   .ces-panel-shaking { animation: none !important; }

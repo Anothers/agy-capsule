@@ -1049,6 +1049,149 @@ await test('2.33 model picker shows the inherited effort, can hide previews, and
   assert.equal(await trigger.getAttribute('data-deck-model-bubble'), null);
 });
 
+await test('Orchestrator inherits the main model color and the picker keeps its widest row width', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const page = await browser.newPage({ viewport: { width: 900, height: 620 }, colorScheme: 'dark', reducedMotion: 'reduce' });
+  await page.route('http://orch.test/', route => route.fulfill({ contentType: 'text/html', body:
+    '<style>:root{color-scheme:dark;--foreground:#eee;--card:#16161b}body{background:#111}</style><main data-testid="conversation-view"><div class="agy-composer-footer" style="position:fixed;bottom:12px;width:90vw;display:flex"><div style="flex:1;display:flex"><button data-testid="model-selector-trigger">Native menu</button></div><div>Send</div></div></main>' }));
+  await page.goto('http://orch.test/');
+  await page.getByTestId('model-selector-trigger').evaluate(button => {
+    const planners = [
+      'Gemini 4 Neon (High)', 'Gemini 4 Neon (Low)',
+      'Gemini 4 Hydrogen Extended (Medium)', 'Gemini 4 Hydrogen Extended (Low)',
+      'Claude Opus (Medium)', 'Claude Opus (Low)',
+    ].map((label, i) => ({ label, value: i + 1 }));
+    const orch = { label: 'Orchestrator', value: 30, modelId: 'gemini-pro-coordinator' };
+    const modelOptions = [...planners, orch];
+    const selector = {
+      modelOptions, groups: [{ options: modelOptions }], selectedModel: planners[0],
+      orchestratorPlanners: planners, orchestratorDefaultPlanner: planners[0],
+      orchestratorPick: { model: 0, select(value) { this.model = value; } },
+      setSelectedModel(option) { this.selectedModel = option; },
+    };
+    button.__reactFiber$fixture = { memoizedProps: { value: selector }, return: {
+      memoizedProps: { conversationId: 'fixture', placement: 'top-start' },
+    } };
+  });
+  await page.evaluate(buildRuntimeBundle(owner).code);
+  const data = snapshot();
+  Object.assign(data.prefs, { modelEffortPicker: true, showEffortBar: true });
+  await apply(page, data);
+  await page.locator('[data-el="modelPicker"]').click();
+  const panel = page.locator('.dk-model-options');
+  const orch = page.getByRole('switch', { name: 'Orchestrator' });
+  const width = () => panel.evaluate(el => el.getBoundingClientRect().width);
+  const initialWidth = await width();
+  const foreground = () => orch.evaluate(async el => {
+    const label = el.querySelector('.dk-orch-label, .dk-orch-inner');
+    getComputedStyle(label).color;
+    await Promise.all(label.getAnimations().map(animation => animation.finished));
+    const sample = document.createElement('canvas').getContext('2d');
+    sample.fillStyle = getComputedStyle(label).color;
+    sample.fillRect(0, 0, 1, 1);
+    return [...sample.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+  });
+  for (const [orchestratorMode, orchestrator3dStyle, engine] of [
+    ['follow', 'helix', 'chamber'], ['dock', 'helix', 'dock'],
+    ...['chamber', 'helix', 'orbital', 'c-matrix', 'c-louver', 'c-spark', 'nebula', 'beam', 'orb']
+      .map(style => ['custom3d', style, style]),
+  ]) {
+    Object.assign(data.prefs, { orchestratorMode, orchestrator3dStyle });
+    await apply(page, data);
+    assert.equal(await orch.getAttribute('data-engine'), engine);
+    const [r, , b] = await foreground();
+    assert.ok(r > b, engine + ' OFF must use Neon red, not purple (' + [r, b] + ')');
+    await orch.click();
+    assert.equal(await orch.getAttribute('aria-checked'), 'true');
+    if (engine === 'beam') assert.deepEqual(await foreground(), [225, 77, 103], 'Beam ON uses the main model accent');
+    await orch.click();
+    assert.equal(await orch.getAttribute('aria-checked'), 'false');
+    assert.equal(await width(), initialWidth, engine + ' must not affect menu width');
+  }
+  Object.assign(data.prefs, { orchestrator3dStyle: 'orbital', effortTheme: 'claude' });
+  await apply(page, data);
+  await page.locator('[data-family="Gemini 4 Hydrogen Extended"]').click();
+  assert.equal(await width(), initialWidth, 'selecting the longest row does not grow the popup');
+  const hydrogen = await foreground();
+  assert.ok(hydrogen[2] > hydrogen[0], 'the model color wins over the forced Claude style');
+  const pins = await orch.locator('canvas').evaluate(canvas => {
+    const ctx = canvas.getContext('2d');
+    const ratio = canvas.height / 28;
+    const y = Math.round(14 * ratio);
+    return [Math.round(14 * ratio), canvas.width - Math.round(14 * ratio)].map(x => {
+      const [r, g, b] = ctx.getImageData(x, y - Math.round(2.5 * ratio), 1, 1).data;
+      return b > g && g > r;
+    });
+  });
+  assert.ok(pins.every(Boolean), 'both 3D pins use related Hydrogen tones');
+  await page.getByRole('slider', { name: 'Effort level' }).press('Home');
+  assert.equal(await width(), initialWidth, 'a shorter effort label does not shrink the popup');
+  await page.locator('[data-family="Claude Opus"]').click();
+  const claude = await foreground();
+  assert.ok(claude[0] > claude[2] && claude[1] > claude[2], 'changing models repaints the capsule');
+  assert.equal(await width(), initialWidth);
+});
+
+await test('Models tab reverts to native without resetting options and expands the customized model list', async t => {
+  const browser = await chromium.launch(launch);
+  t.after(() => browser.close());
+  const sidebar = await browser.newPage({ viewport: { width: 360, height: 760 } });
+  const data = snapshot();
+  data.availableModels = ['Gemini Titanium', 'Claude Silver'];
+  const patches = [];
+  await sidebar.route('http://agy.test/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/context') return route.fulfill({ json: data });
+    if (path === '/api/settings') {
+      const patch = route.request().postDataJSON();
+      patches.push(patch);
+      Object.assign(data.prefs, patch);
+      return route.fulfill({ json: data.prefs });
+    }
+    return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
+  });
+  await sidebar.goto('http://agy.test/?token=fixture');
+  await sidebar.getByRole('tab', { name: '模型', exact: true }).click();
+  const nativeCapsule = sidebar.getByRole('checkbox', { name: '退回原生模型胶囊' });
+  const toggle = sidebar.getByRole('checkbox', { name: '思考强度滑条和Orchestrator胶囊' });
+  assert.equal(await nativeCapsule.isChecked(), true);
+  assert.equal(await toggle.isDisabled(), true);
+  await nativeCapsule.hover();
+  const nativeTip = sidebar.getByRole('tooltip', { name: '退回后本页所有功能均暂时失效' });
+  await nativeTip.waitFor({ state: 'visible' });
+  await sidebar.keyboard.press('Escape');
+  await nativeTip.waitFor({ state: 'hidden' });
+  await nativeCapsule.uncheck();
+  const modelList = sidebar.locator('#setting-model-list');
+  const customize = sidebar.getByRole('checkbox', { name: '定制模型列表' });
+  assert.equal(await modelList.isVisible(), false);
+  await customize.check();
+  const titanium = modelList.getByRole('button', { name: 'Titanium' });
+  await titanium.click();
+  assert.equal(await titanium.getAttribute('aria-pressed'), 'false');
+  await customize.uncheck();
+  await modelList.waitFor({ state: 'hidden' });
+  await customize.check();
+  await modelList.waitFor({ state: 'visible' });
+  await toggle.check();
+  await nativeCapsule.check();
+  await sidebar.waitForFunction(() => !document.getElementById('setting-native-model-capsule').disabled);
+  const theme = sidebar.locator('button[data-pick-setting="effortTheme"][data-pick-value="auto"]');
+  assert.equal(await theme.isDisabled(), true);
+  assert.equal(await titanium.isDisabled(), true);
+  assert.equal(await toggle.isDisabled(), true);
+  assert.equal(await toggle.isChecked(), true);
+  assert.equal(await sidebar.locator('.setting-model-card').evaluate(el => getComputedStyle(el).opacity), '0.45');
+  assert.equal(await sidebar.locator('.fx-preview-card').evaluate(el => el.inert), true);
+  await nativeCapsule.uncheck();
+  await sidebar.waitForFunction(() => !document.querySelector('input[name="showEffortBar"]').disabled);
+  assert.equal(await theme.isEnabled(), true);
+  assert.equal(await toggle.isChecked(), true);
+  assert.equal(await titanium.getAttribute('aria-pressed'), 'false');
+  assert.deepEqual(patches.slice(-2), [{ modelEffortPicker: false }, { modelEffortPicker: true }]);
+});
+
 await test('Opt-in effort bar animates and switches models in place; default picker still uses submenus', async t => {
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
@@ -1065,10 +1208,10 @@ await test('Opt-in effort bar animates and switches models in place; default pic
     return route.fulfill(path === '/preload.js' ? { body: '' } : { contentType: 'text/html', body: UI_HTML });
   });
   await sidebar.goto('http://agy.test/?token=fixture');
-  await sidebar.locator('#sidebar-tab-settings').click();
-  const toggle = sidebar.getByRole('checkbox', { name: '思考强度滑条' });
+  await sidebar.getByRole('tab', { name: '模型', exact: true }).click();
+  const toggle = sidebar.getByRole('checkbox', { name: '思考强度滑条和Orchestrator胶囊' });
   assert.equal(await toggle.isDisabled(), true);
-  await sidebar.getByRole('checkbox', { name: '优化模型胶囊' }).check();
+  await sidebar.getByRole('checkbox', { name: '退回原生模型胶囊' }).uncheck();
 
   await page.route('http://effort.test/', route => route.fulfill({ contentType: 'text/html', body:
     `<style>:root{color-scheme:dark;--foreground:#f1f1f1;--card:#1c1c20}body{background:#121214}</style>
@@ -1119,10 +1262,14 @@ await test('Opt-in effort bar animates and switches models in place; default pic
   await page.mouse.up();
   assert.deepEqual(await page.evaluate(() => window.effortCalls), ['Gemini 4 Argon (Medium)', 'Gemini 4 Argon (High)']);
   assert.equal(await range.getAttribute('aria-valuetext'), 'High', 'the menu stays open');
-  await page.waitForFunction(() => {
-    const stars = document.getElementById('agy-capsule-host').shadowRoot.querySelector('.ces-stars');
-    return +stars.dataset.count === 22 && stars.getAnimations({ subtree: true }).some(a => a.playState === 'running');
-  });
+  assert.equal(await range.getAttribute('data-theme'), 'gemini');
+  assert.equal(await range.getAttribute('data-element'), 'argon');
+  const geminiCanvas = range.locator('canvas');
+  const firstGeminiFrame = await geminiCanvas.evaluate(el => el.toDataURL());
+  await page.waitForFunction(frame => {
+    const canvas = document.getElementById('agy-capsule-host').shadowRoot.querySelector('.ces-claude-canvas');
+    return canvas && canvas.width > 0 && canvas.toDataURL() !== frame;
+  }, firstGeminiFrame);
 
   await claude.click();
   assert.equal(await panel.isVisible(), true, 'selecting a different model keeps the menu open');
@@ -1133,31 +1280,34 @@ await test('Opt-in effort bar animates and switches models in place; default pic
   const firstFrame = await canvas.evaluate(el => el.toDataURL());
   await page.waitForFunction(frame => {
     const canvas = document.getElementById('agy-capsule-host').shadowRoot.querySelector('.ces-claude-canvas');
-    return canvas.width < 280 && canvas.toDataURL() !== frame;
+    return canvas.width < 560 && canvas.toDataURL() !== frame;
   }, firstFrame);
   await range.click({ button: 'right' });
   const controls = page.getByRole('dialog', { name: '思考强度滑条', exact: true });
   assert.equal(await controls.getByText('思考强度滑条', { exact: true }).count(), 0);
-  assert.equal(await controls.getByRole('button').count(), 17);
+  assert.equal(await controls.getByRole('tab', { name: '滑条', exact: true }).getAttribute('aria-selected'), 'true');
   await controls.getByRole('button', { name: '慢速' }).click();
   await controls.getByRole('button', { name: '隐藏' }).click();
   await controls.getByRole('button', { name: 'Codex' }).click();
-  await controls.getByRole('button', { name: '液态紫珠' }).click();
-  await controls.getByRole('button', { name: '扇形声部' }).click();
   assert.equal(await range.getAttribute('data-theme'), 'codex');
   assert.equal(await range.locator('.ces-ticks').isVisible(), false);
+  await controls.getByRole('tab', { name: 'Orchestrator', exact: true }).click();
+  await controls.getByRole('button', { name: '指定样式' }).click();
+  await controls.getByRole('button', { name: '液态流珠' }).click();
+  await controls.getByRole('button', { name: '扇形声部' }).click();
   await page.keyboard.press('Escape');
   assert.equal(await controls.count(), 0);
   assert.equal(await panel.isVisible(), true);
   await range.press('Shift+F10');
   assert.equal(await controls.getByRole('button', { name: '慢速' }).getAttribute('aria-pressed'), 'true');
-  assert.equal(await controls.getByRole('button', { name: '液态紫珠' }).getAttribute('aria-pressed'), 'true');
-  assert.equal(await controls.getByRole('button', { name: '扇形声部' }).getAttribute('aria-pressed'), 'true');
   await controls.getByRole('button', { name: '全部同色' }).click();
   assert.equal(await range.locator('.ces-tick.is-dim').count(), 2);
   await controls.getByRole('button', { name: '跟随模型' }).click();
   assert.equal(await range.getAttribute('data-theme'), 'claude');
-  await controls.getByRole('button', { name: '螺旋星流' }).click();
+  await controls.getByRole('tab', { name: 'Orchestrator', exact: true }).click();
+  assert.equal(await controls.getByRole('button', { name: '液态流珠' }).getAttribute('aria-pressed'), 'true');
+  assert.equal(await controls.getByRole('button', { name: '扇形声部' }).getAttribute('aria-pressed'), 'true');
+  await controls.getByRole('button', { name: '跟随主题' }).click();
   await controls.getByRole('button', { name: '棱镜分流' }).click();
   await page.mouse.click(700, 100);
   assert.equal(await controls.count(), 0);
@@ -1178,17 +1328,15 @@ await test('Opt-in effort bar animates and switches models in place; default pic
     const slider = document.getElementById('agy-capsule-host').shadowRoot.querySelector('.ces-root');
     return slider.getAttribute('aria-valuetext') === 'XHigh' && slider.style.getPropertyValue('--ces-energy') === '1';
   });
-  const effect = () => range.evaluate(slider => {
-    const track = slider.querySelector('.ces-track');
-    const stars = track.querySelector('.ces-stars');
-    return [slider.dataset.theme, slider.style.getPropertyValue('--ces-energy'), track.style.getPropertyValue('--ces-fill-bg'),
-      getComputedStyle(track).opacity, getComputedStyle(track).filter, stars.dataset.count,
-      stars.firstElementChild.style.animationDuration, getComputedStyle(track.querySelector('.ces-energy__sweep')).animationPlayState];
-  });
-  const xhigh = await effect();
-  for (const model of ['Orchestrator (Argon)', 'Orchestrator (Neon)', 'Custom']) {
+  for (const [model, expectedTheme, expectedElement] of [
+    ['Orchestrator (Argon)', 'gemini', 'argon'],
+    ['Orchestrator (Neon)', 'gemini', 'neon'],
+    ['Custom', 'codex', 'codex'],
+  ]) {
     await page.getByRole('menuitem', { name: model, exact: true }).click();
-    assert.deepEqual(await effect(), xhigh, 'a model without a known effort tier uses the same running effects as Gemini XHigh');
+    assert.equal(await range.getAttribute('data-theme'), expectedTheme);
+    assert.equal(await range.getAttribute('data-element'), expectedElement);
+    assert.equal(await range.evaluate(el => el.style.getPropertyValue('--ces-energy')), '1', 'a model without a known effort tier runs at full energy');
     assert.equal(await range.getAttribute('aria-disabled'), 'true');
     assert.equal(await range.getAttribute('aria-valuemax'), '0');
     assert.equal(await range.getAttribute('aria-valuetext'), null);

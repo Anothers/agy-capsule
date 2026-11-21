@@ -1,4 +1,5 @@
 import { createUpstreamEffort, UPSTREAM_EFFORT_CSS } from './effort_upstream.mjs';
+import { motionThemes } from './motion_themes.mjs';
 
 const ORCHESTRATOR_CSS = `
 .dk-orch-slot {
@@ -10,11 +11,15 @@ const ORCHESTRATOR_CSS = `
   --orch-dur: 0.16s;
   --orch-burst-dur: 0.30s;
   --orch-icon-dur: 0.18s;
+  --orch-loop-scale: 0.8;
+  --orch-beam-dur: 2.24s;
 }
 .dk-orch-slot[data-motion="full"] {
   --orch-dur: 0.58s;
   --orch-burst-dur: 0.90s;
   --orch-icon-dur: 0.62s;
+  --orch-loop-scale: 1.35;
+  --orch-beam-dur: 3.78s;
 }
 .dk-orch-slot[hidden] { display: none !important; }
 .dk-orch-slot:not([hidden]) + .agy-effort { margin-top: 0; }
@@ -41,15 +46,14 @@ const ORCHESTRATOR_CSS = `
   user-select: none;
   -webkit-user-select: none;
   -webkit-tap-highlight-color: transparent;
-  --orch-off-bg: color-mix(in srgb, #8b5cf6 7%, transparent);
-  --orch-off-border: color-mix(in srgb, #8b5cf6 24%, transparent);
-  --orch-off-text: color-mix(in srgb, var(--foreground, CanvasText) 74%, #7c3aed);
-  --orch-accent: color-mix(in srgb, #8b5cf6 84%, var(--foreground, CanvasText));
+  --orch-off-bg: rgba(var(--orch-core-rgb), 0.07);
+  --orch-off-border: rgba(var(--orch-core-rgb), 0.24);
+  --orch-off-text: color-mix(in srgb, var(--foreground, CanvasText) 74%, var(--orch-accent));
   --orch-surface: var(--popover, var(--card, Canvas));
-  --orch-on-surface: color-mix(in srgb, var(--popover, var(--card, Canvas)) 90%, #8b5cf6);
+  --orch-on-surface: color-mix(in srgb, var(--orch-surface) 90%, var(--orch-accent));
 }
 .dk-orch-btn:focus-visible {
-  outline: 2px solid #a78bfa;
+  outline: 2px solid var(--orch-accent);
   outline-offset: 2px;
 }
 .dk-orch-btn[data-style="dock"]:focus-visible {
@@ -100,9 +104,9 @@ const ORCHESTRATOR_CSS = `
 .dk-orch-sdot {
   position: absolute;
   border-radius: 50%;
-  background: radial-gradient(circle, #ffffff 0%, #e9d5ff 42%, rgba(216, 180, 254, 0) 75%);
-  animation: dk-orch-star var(--dur, 4.6s) linear infinite;
-  animation-delay: var(--del, 0s);
+  background: radial-gradient(circle, #ffffff 0%, rgba(var(--orch-glow-rgb, 233, 213, 255), 0.92) 42%, rgba(var(--orch-glow-rgb, 216, 180, 254), 0) 75%);
+  animation: dk-orch-star calc(var(--dur, 4.6s) * var(--orch-loop-scale, 0.8)) linear infinite;
+  animation-delay: calc(var(--del, 0s) * var(--orch-loop-scale, 0.8));
   will-change: transform, opacity;
   pointer-events: none;
 }
@@ -120,7 +124,7 @@ const ORCHESTRATOR_CSS = `
 }
 .dk-orch-btn[data-style="nebula"] .dk-orch-glow {
   position: absolute; inset: 0; border-radius: 999px;
-  box-shadow: 0 0 15px rgba(147, 51, 234, 0.48);
+  box-shadow: 0 0 15px rgba(var(--orch-core-rgb, 147, 51, 234), 0.48);
   opacity: 0; transition: opacity 0.3s ease; pointer-events: none; will-change: opacity;
 }
 .dk-orch-btn[data-style="nebula"][aria-checked="true"] .dk-orch-glow { opacity: 1; }
@@ -130,7 +134,7 @@ const ORCHESTRATOR_CSS = `
 }
 .dk-orch-btn[data-style="nebula"] .dk-orch-fill {
   position: absolute; inset: 0; border-radius: 999px;
-  background: linear-gradient(90deg, #3b1178 0%, #6d28d9 32%, #9333ea 68%, #c084fc 100%);
+  background: linear-gradient(90deg, var(--orch-c0, #3b1178) 0%, var(--orch-c1, #6d28d9) 34%, var(--orch-c2, #9333ea) 68%, var(--orch-c3, #c084fc) 100%);
   transform: scale3d(0.01, 1, 1); opacity: 0;
   transition: transform var(--orch-dur) cubic-bezier(0.16, 1, 0.3, 1), opacity var(--orch-dur) ease;
   will-change: transform, opacity;
@@ -172,10 +176,10 @@ const ORCHESTRATOR_CSS = `
   background: var(--orch-off-border);
   transition: transform 0.14s ease, background-color 0.25s ease;
 }
-.dk-orch-btn[data-style="beam"][aria-checked="true"] { background: rgba(139, 92, 246, 0.4); }
+.dk-orch-btn[data-style="beam"][aria-checked="true"] { background: rgba(var(--orch-core-rgb, 139, 92, 246), 0.42); }
 .dk-orch-btn[data-style="beam"] .dk-orch-ring {
   position: absolute; inset: 0; border-radius: 999px;
-  border: 1.5px solid rgba(168, 85, 247, 0.72);
+  border: 1.5px solid rgba(var(--orch-core-rgb, 168, 85, 247), 0.72);
   opacity: 0; pointer-events: none; will-change: transform, opacity;
 }
 .dk-orch-btn[data-style="beam"][aria-checked="true"].is-burst .dk-orch-ring {
@@ -183,7 +187,7 @@ const ORCHESTRATOR_CSS = `
 }
 .dk-orch-btn[data-style="beam"] .dk-orch-glow {
   position: absolute; inset: 0; border-radius: 999px;
-  box-shadow: 0 0 14px -2px rgba(139, 92, 246, 0.45);
+  box-shadow: 0 0 14px -2px rgba(var(--orch-core-rgb, 139, 92, 246), 0.45);
   opacity: 0; transition: opacity 0.28s ease; pointer-events: none;
 }
 .dk-orch-btn[data-style="beam"][aria-checked="true"] .dk-orch-glow { opacity: 1; }
@@ -194,11 +198,11 @@ const ORCHESTRATOR_CSS = `
 .dk-orch-btn[data-style="beam"] .dk-orch-beam {
   position: absolute; left: 50%; top: 50%; width: 340px; height: 340px;
   transform: translate3d(-50%, -50%, 0);
-  background: conic-gradient(from 0deg, transparent 0%, transparent 56%, #7c3aed 72%, #c084fc 86%, #ffffff 93%, #9333ea 100%);
+  background: conic-gradient(from 0deg, transparent 0%, transparent 56%, var(--orch-c1, #7c3aed) 72%, var(--orch-c3, #c084fc) 86%, #ffffff 93%, var(--orch-c2, #9333ea) 100%);
   opacity: 0; transition: opacity 0.28s ease; will-change: transform, opacity;
 }
 .dk-orch-btn[data-style="beam"][aria-checked="true"] .dk-orch-beam {
-  opacity: 1; animation: dk-orch-spin 2.8s linear infinite;
+  opacity: 1; animation: dk-orch-spin var(--orch-beam-dur, 2.24s) linear infinite;
 }
 .dk-orch-btn[data-style="beam"] .dk-orch-inner {
   position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 999px;
@@ -258,31 +262,31 @@ const ORCHESTRATOR_CSS = `
   text-shadow: 0 1px 8px rgba(46, 16, 101, 0.85), 0 0 12px rgba(233, 213, 255, 0.65);
 }
 
-/* ── Style 4: Unified Command Dock (紫光指挥舱一体卡) ── */
+/* ── Style 4: Unified Command Dock (指挥舱一体卡) ── */
 @keyframes dk-orch-dock-flash { 0% { opacity: 0.9; } 100% { opacity: 0; } }
 .dk-orch-btn[data-style="dock"] {
   height: 30px;
   border-radius: 8px;
-  background: rgba(139, 92, 246, 0.06);
-  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.42), 0 0 14px -4px rgba(139, 92, 246, 0.35);
+  background: rgba(var(--orch-core-rgb, 139, 92, 246), 0.06);
+  box-shadow: inset 0 0 0 1px rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), 0 0 14px -4px rgba(var(--orch-core-rgb, 139, 92, 246), 0.35);
   overflow: hidden;
   transition: transform 0.14s ease;
 }
 .dk-orch-slot[data-style="dock"]:has(+ .agy-effort) .dk-orch-btn[data-style="dock"] {
   border-radius: 8px 8px 0 0;
-  box-shadow: inset 1px 0 0 rgba(139, 92, 246, 0.42), inset -1px 0 0 rgba(139, 92, 246, 0.42), inset 0 1px 0 rgba(139, 92, 246, 0.42), inset 0 -1px 0 rgba(139, 92, 246, 0.18), 0 -2px 12px -4px rgba(139, 92, 246, 0.32);
+  box-shadow: inset 1px 0 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), inset -1px 0 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), inset 0 1px 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), inset 0 -1px 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.18), 0 -2px 12px -4px rgba(var(--orch-core-rgb, 139, 92, 246), 0.32);
 }
 .dk-orch-slot[data-style="dock"]:not([hidden]) + .agy-effort {
   margin-top: 0 !important;
 }
 .dk-orch-slot[data-style="dock"]:not([hidden]) + .agy-effort .ces-ag-effort-row {
   border-radius: 0 0 8px 8px;
-  background-color: rgba(139, 92, 246, 0.06);
-  box-shadow: inset 1px 0 0 rgba(139, 92, 246, 0.42), inset -1px 0 0 rgba(139, 92, 246, 0.42), inset 0 -1px 0 rgba(139, 92, 246, 0.42), 0 6px 14px -4px rgba(139, 92, 246, 0.36) !important;
+  background-color: rgba(var(--orch-core-rgb, 139, 92, 246), 0.06);
+  box-shadow: inset 1px 0 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), inset -1px 0 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), inset 0 -1px 0 rgba(var(--orch-core-rgb, 139, 92, 246), 0.42), 0 6px 14px -4px rgba(var(--orch-core-rgb, 139, 92, 246), 0.36) !important;
 }
 .dk-orch-btn[data-style="dock"] .dk-orch-wave {
   position: absolute; inset: 0;
-  background: linear-gradient(90deg, rgba(76, 29, 149, 0.94), rgba(124, 58, 237, 0.94), rgba(168, 85, 247, 0.94));
+  background: linear-gradient(90deg, var(--orch-c0, #4c1d95), var(--orch-c1, #7c3aed), var(--orch-c2, #a855f7));
   transform: translate3d(0, -104%, 0);
   transition: transform var(--orch-dur) cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform; pointer-events: none;
@@ -290,7 +294,7 @@ const ORCHESTRATOR_CSS = `
 .dk-orch-btn[data-style="dock"][aria-checked="true"] .dk-orch-wave { transform: translate3d(0, 0, 0); }
 .dk-orch-btn[data-style="dock"] .dk-orch-pulse {
   position: absolute; inset: 0; border-radius: inherit;
-  box-shadow: inset 0 0 0 1.5px rgba(192, 132, 252, 0.95);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--orch-glow-rgb, 192, 132, 252), 0.92);
   opacity: 0; pointer-events: none; z-index: 4; will-change: opacity;
 }
 .dk-orch-btn[data-style="dock"][aria-checked="true"].is-burst .dk-orch-pulse {
@@ -305,22 +309,22 @@ const ORCHESTRATOR_CSS = `
 .dk-orch-btn[data-style="dock"][aria-checked="true"] .dk-orch-label { color: #ffffff; }
 .dk-orch-btn[data-style="dock"] .dk-orch-badge {
   font-size: 10px; line-height: 1; padding: 2px 5px; border-radius: 99px;
-  background: rgba(139, 92, 246, 0.14); color: var(--orch-accent); font-weight: 600;
+  background: rgba(var(--orch-core-rgb, 139, 92, 246), 0.14); color: var(--orch-accent); font-weight: 600;
   transition: background-color 0.22s ease, color 0.22s ease;
 }
 .dk-orch-btn[data-style="dock"][aria-checked="true"] .dk-orch-badge {
   background: rgba(255, 255, 255, 0.22); color: #ffffff;
 }
 
-/* ── Style 5: Liquid Orb Pill (液态紫珠胶囊 - 二阶弹簧物理) ── */
+/* ── Style 5: Liquid Orb Pill (液态流珠胶囊 - 二阶弹簧物理) ── */
 .dk-orch-btn[data-style="orb"] {
   background: rgba(128, 128, 145, 0.16);
-  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(139, 92, 246, 0.16);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18), inset 0 0 0 1px rgba(var(--orch-core-rgb, 139, 92, 246), 0.18);
   contain: layout style;
 }
 .dk-orch-btn[data-style="orb"] .dk-orch-glow {
   position: absolute; inset: 0; border-radius: 999px;
-  box-shadow: 0 0 14px rgba(168, 85, 247, 0.45);
+  box-shadow: 0 0 14px rgba(var(--orch-core-rgb, 168, 85, 247), 0.45);
   opacity: 0; pointer-events: none; will-change: opacity;
 }
 .dk-orch-btn[data-style="orb"] .dk-orch-clip {
@@ -329,7 +333,7 @@ const ORCHESTRATOR_CSS = `
 }
 .dk-orch-btn[data-style="orb"] .dk-orch-fill-slide {
   position: absolute; inset: 0; border-radius: 999px;
-  background: linear-gradient(90deg, #3b1178 0%, #6d28d9 30%, #9333ea 62%, #c084fc 100%);
+  background: linear-gradient(90deg, var(--orch-c0, #3b1178) 0%, var(--orch-c1, #6d28d9) 34%, var(--orch-c2, #9333ea) 66%, var(--orch-c3, #c084fc) 100%);
   transform: translate3d(-100%, 0, 0);
   opacity: 0; will-change: transform, opacity;
 }
@@ -349,7 +353,7 @@ const ORCHESTRATOR_CSS = `
 .dk-orch-btn[data-style="orb"] .dk-orch-bloom {
   position: absolute; left: 50%; top: 50%;
   width: 96px; height: 32px; border-radius: 999px;
-  background: radial-gradient(ellipse at center, rgba(233, 213, 255, 0.8) 0%, rgba(192, 132, 252, 0.32) 45%, transparent 74%);
+  background: radial-gradient(ellipse at center, rgba(var(--orch-glow-rgb, 233, 213, 255), 0.78) 0%, rgba(var(--orch-core-rgb, 192, 132, 252), 0.32) 45%, transparent 74%);
   opacity: 0; pointer-events: none; z-index: 1;
   transform: translate3d(-50%, -50%, 0) scale3d(0.6, 0.6, 1);
   will-change: transform, opacity;
@@ -361,13 +365,72 @@ const ORCHESTRATOR_CSS = `
   color: var(--orch-off-text); transition: color 0.18s ease; pointer-events: none;
 }
 .dk-orch-btn[data-style="orb"][aria-checked="true"] .dk-orch-label {
-  color: #ffffff; text-shadow: 0 1px 4px rgba(59, 17, 120, 0.45);
+  color: #ffffff; text-shadow: 0 1px 4px color-mix(in srgb, var(--orch-c0) 45%, transparent);
 }
 
-/* Settings popover multi-row grids for 4 / 5 choices */
+/* ── Style 6: Theme-coupled 3D Orchestrator (Gemini / Claude 6× 3D Engines) ── */
+.dk-orch-btn[data-style="theme3d"] {
+  background: transparent;
+  overflow: hidden;
+  transition: transform 0.14s cubic-bezier(0.22, 1, 0.36, 1), border-radius 0.18s ease, box-shadow 0.22s ease;
+}
+.dk-orch-btn[data-style="theme3d"][data-shape="claude"] {
+  border-radius: 9px;
+}
+.dk-orch-btn[data-style="theme3d"] .dk-orch-canvas {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; z-index: 1; pointer-events: none;
+}
+.dk-orch-btn[data-style="theme3d"] .dk-orch-label {
+  position: relative; z-index: 3;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; font-weight: 500; letter-spacing: 0.015em;
+  color: var(--orch-off-text);
+  transition: color 0.22s ease, text-shadow 0.22s ease, letter-spacing 0.22s ease;
+}
+.dk-orch-btn[data-style="theme3d"][aria-checked="true"] .dk-orch-label {
+  color: rgba(255, 255, 255, 0.96);
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.56);
+  letter-spacing: 0.025em;
+}
+
+/* Settings popover 2-tab switcher & multi-row grids */
+.ces-set-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 2px;
+  margin-bottom: 10px;
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--foreground, #fff) 6%, transparent);
+  border: 1px solid color-mix(in srgb, var(--foreground, #fff) 8%, transparent);
+}
+.ces-set-tab {
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted-foreground, color-mix(in srgb, var(--foreground, CanvasText) 65%, transparent));
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.14s ease, color 0.14s ease;
+}
+.ces-set-tab[aria-selected="true"] {
+  background: var(--card, rgb(28, 28, 34));
+  color: var(--foreground, CanvasText);
+  font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.ces-set-pane[hidden], .ces-set-group[hidden] { display: none !important; }
 .ces-set-opts[data-cols="4"] {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+}
+.ces-set-opts[data-cols="4-row"] {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 4px;
 }
 .ces-set-opts[data-cols="5"] {
@@ -378,6 +441,11 @@ const ORCHESTRATOR_CSS = `
 .ces-set-opts[data-cols="5"] .ces-set-opt {
   flex: 1 1 calc(33.33% - 4px);
   min-width: 78px;
+}
+.ces-set-opts[data-cols="6"] {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
 }
 .ces-set-opt {
   display: inline-flex;
@@ -440,7 +508,7 @@ const ORCHESTRATOR_CSS = `
 
 export const EFFORT_BAR_CSS = UPSTREAM_EFFORT_CSS +
 ' .ces-root:focus-visible, .ces-set button:focus-visible { outline: 2px solid #a78bfa; outline-offset: 2px; }' +
-' .ces-set { inset: auto; margin: 0; width: 308px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; }' +
+' .ces-set { inset: auto; margin: 0; width: 312px; max-width: calc(100vw - 16px); max-height: calc(100vh - 16px); overflow: auto; }' +
 ' .ces-set-opt { text-wrap: balance; min-height: 27px; }' +
 ' @media (prefers-reduced-motion: reduce) { .ces-star, .ces-energy__sweep { animation-play-state: paused !important; } }' +
 ORCHESTRATOR_CSS;
@@ -449,7 +517,7 @@ export function effortEffects() {
   return effortEffects.instance ??= createUpstreamEffort();
 }
 
-export function mountEffortBar(choose) {
+export function mountEffortBar(choose, onVisualChange = null) {
   const effects = effortEffects();
   const element = document.createElement('div');
   element.className = 'agy-effort ces-ag-section';
@@ -481,7 +549,14 @@ export function mountEffortBar(choose) {
 
   function updateMount() {
     if (open && seat.effortLevels.length && !mounted) {
-      mounted = effects.mountCodexEffortSlider({ container, row, valueElement, seat, caption: caption.textContent });
+      mounted = effects.mountCodexEffortSlider({
+        container,
+        row,
+        valueElement,
+        seat,
+        caption: caption.textContent,
+        onVisualChange: info => onVisualChange?.(info),
+      });
     }
   }
 
@@ -496,7 +571,7 @@ export function mountEffortBar(choose) {
     if (restoreFocus) focusEl?.focus({ preventScroll: true });
   }
 
-  function openSettings(x, y, focusBack = null) {
+  function openSettings(x, y, focusBack = null, initialTab = 'slider') {
     if (!settingsLabels?.title) return;
     closeSettings();
     restoreTarget = focusBack;
@@ -508,15 +583,60 @@ export function mountEffortBar(choose) {
     menu.setAttribute('role', 'dialog');
     menu.setAttribute('aria-label', labels.title);
 
+    const hasOrchTab = Array.isArray(labels.orchestratorMode) || Array.isArray(labels.orchestratorStyle);
+    let activeTab = hasOrchTab && initialTab === 'orch' ? 'orch' : 'slider';
+
+    const tabButtons = [];
+    const panes = {};
+    const groupNodes = {};
     const choices = [];
-    const renderChoices = () => {
+
+    const positionMenu = () => {
+      const rect = menu.getBoundingClientRect();
+      const panel = element.closest?.('.dk-model-options');
+      const panelRect = panel?.getBoundingClientRect?.();
+      let left = x, top = y;
+      if (panelRect && panelRect.width > 0) {
+        const gap = 8;
+        const rightX = panelRect.right + gap;
+        const leftX = panelRect.left - rect.width - gap;
+        left = rightX + rect.width <= innerWidth - 8 ? rightX : leftX >= 8 ? leftX : rightX;
+        top = panelRect.bottom - rect.height;
+      }
+      menu.style.left = Math.round(Math.max(8, Math.min(innerWidth - rect.width - 8, left))) + 'px';
+      menu.style.top = Math.round(Math.max(8, Math.min(innerHeight - rect.height - 8, top))) + 'px';
+    };
+
+    const renderChoices = (reposition = false) => {
       const prefs = effects.readSettings(window);
       for (const [button, key, value] of choices) {
         const active = prefs[key] === value;
         button.classList.toggle('is-on', active);
         button.setAttribute('aria-pressed', String(active));
       }
+      if (groupNodes.geminiTheme) {
+        groupNodes.geminiTheme.hidden = !(prefs.theme === 'auto' || prefs.theme === 'gemini');
+      }
+      if (groupNodes.claudeTheme) {
+        groupNodes.claudeTheme.hidden = !(prefs.theme === 'auto' || prefs.theme === 'claude');
+      }
+      if (groupNodes.codexTheme) {
+        groupNodes.codexTheme.hidden = !(prefs.theme === 'auto' || prefs.theme === 'codex');
+      }
+      if (groupNodes.orchestrator3dStyle) {
+        groupNodes.orchestrator3dStyle.hidden = prefs.orchestratorMode !== 'custom3d';
+      }
+      for (const [tabKey, btn] of tabButtons) {
+        const sel = tabKey === activeTab;
+        btn.setAttribute('aria-selected', String(sel));
+        btn.tabIndex = sel ? 0 : -1;
+      }
+      for (const [tabKey, pane] of Object.entries(panes)) {
+        pane.hidden = tabKey !== activeTab;
+      }
+      if (reposition) positionMenu();
     };
+
     const buttonFor = (className, label, iconType, action) => {
       const button = document.createElement('button');
       button.type = 'button';
@@ -529,55 +649,94 @@ export function mountEffortBar(choose) {
       return button;
     };
 
-    const groups = [
+    const appendGroups = (hostPane, groupList) => {
+      for (const [key, values, colsOverride] of groupList) {
+        if (!Array.isArray(labels[key])) continue;
+        const group = document.createElement('div');
+        group.className = 'ces-set-group';
+        group.dataset.group = key;
+        group.innerHTML = '<div class="ces-set-label"></div><div class="ces-set-opts" role="group"></div>';
+        group.firstElementChild.textContent = labels[key][0];
+        const options = group.lastElementChild;
+        options.setAttribute('aria-label', labels[key][0]);
+        if (colsOverride) options.dataset.cols = colsOverride;
+        else if (values.length >= 4) options.dataset.cols = String(values.length);
+        values.forEach((value, index) => {
+          const iconType = key === 'orchestratorIcon' ? value : '';
+          const button = buttonFor('ces-set-opt', labels[key][index + 1] || value, iconType, () => {
+            effects.writeSettings({ [key]: value }, window);
+            renderChoices(true);
+          });
+          choices.push([button, key, value]);
+          options.append(button);
+        });
+        groupNodes[key] = group;
+        hostPane.append(group);
+      }
+    };
+
+    if (hasOrchTab) {
+      const tabBar = document.createElement('div');
+      tabBar.className = 'ces-set-tabs';
+      tabBar.setAttribute('role', 'tablist');
+      const tabLabels = Array.isArray(labels.tabs) ? labels.tabs : ['滑条', 'Orchestrator'];
+      for (const [tabKey, tabLabel] of [['slider', tabLabels[0]], ['orch', tabLabels[1]]]) {
+        const tb = document.createElement('button');
+        tb.type = 'button';
+        tb.className = 'ces-set-tab';
+        tb.setAttribute('role', 'tab');
+        tb.dataset.tab = tabKey;
+        tb.textContent = tabLabel;
+        tb.addEventListener('click', () => {
+          activeTab = tabKey;
+          renderChoices(true);
+        });
+        tabButtons.push([tabKey, tb]);
+        tabBar.append(tb);
+      }
+      tabBar.addEventListener('keydown', event => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        activeTab = activeTab === 'slider' ? 'orch' : 'slider';
+        renderChoices(true);
+        tabButtons.find(([k]) => k === activeTab)?.[1]?.focus({ preventScroll: true });
+      });
+      menu.append(tabBar);
+    }
+
+    const sliderPane = document.createElement('div');
+    sliderPane.className = 'ces-set-pane';
+    sliderPane.dataset.pane = 'slider';
+    appendGroups(sliderPane, [
+      ['theme', ['auto', 'gemini', 'claude', 'codex'], '4-row'],
+      ['geminiTheme', ['physical', 'ribbon', 'nebula']],
+      ['claudeTheme', ['matrix', 'bars', 'spark']],
+      ['codexTheme', ['nebula', 'beam', 'orb']],
       ['motion', ['fast', 'full']],
       ['ticks', ['highlight', 'dim', 'hidden']],
-      ['theme', ['auto', 'codex', 'claude']],
-    ];
-    if (Array.isArray(labels.orchestratorStyle)) {
-      groups.push(['orchestratorStyle', ['nebula', 'beam', 'helix', 'dock', 'orb']]);
-    }
-    if (Array.isArray(labels.orchestratorIcon)) {
-      groups.push(['orchestratorIcon', ['prism', 'gravity', 'semicircle', 'none']]);
+    ]);
+    panes.slider = sliderPane;
+    menu.append(sliderPane);
+
+    if (hasOrchTab) {
+      const orchPane = document.createElement('div');
+      orchPane.className = 'ces-set-pane';
+      orchPane.dataset.pane = 'orch';
+      appendGroups(orchPane, [
+        ['orchestratorMode', ['follow', 'dock', 'custom3d']],
+        ['orchestrator3dStyle', ['chamber', 'helix', 'orbital', 'c-matrix', 'c-louver', 'c-spark', 'nebula', 'beam', 'orb'], '6'],
+        ['orchestratorIcon', ['prism', 'gravity', 'semicircle', 'none'], '4'],
+      ]);
+      panes.orch = orchPane;
+      menu.append(orchPane);
     }
 
-    for (const [key, values] of groups) {
-      const group = document.createElement('div');
-      group.className = 'ces-set-group';
-      group.innerHTML = '<div class="ces-set-label"></div><div class="ces-set-opts" role="group"></div>';
-      group.firstElementChild.textContent = labels[key][0];
-      const options = group.lastElementChild;
-      options.setAttribute('aria-label', labels[key][0]);
-      if (values.length >= 4) options.dataset.cols = String(values.length);
-      values.forEach((value, index) => {
-        const iconType = key === 'orchestratorIcon' ? value : '';
-        const button = buttonFor('ces-set-opt', labels[key][index + 1], iconType, () => {
-          effects.writeSettings({ [key]: value }, window);
-          renderChoices();
-        });
-        choices.push([button, key, value]);
-        options.append(button);
-      });
-      menu.append(group);
-    }
-
-    renderChoices();
+    renderChoices(false);
     element.append(menu);
     menu.showPopover();
-    const rect = menu.getBoundingClientRect();
-    const panel = element.closest?.('.dk-model-options');
-    const panelRect = panel?.getBoundingClientRect?.();
-    let left = x, top = y;
-    if (panelRect && panelRect.width > 0) {
-      const gap = 8;
-      const rightX = panelRect.right + gap;
-      const leftX = panelRect.left - rect.width - gap;
-      left = rightX + rect.width <= innerWidth - 8 ? rightX : leftX >= 8 ? leftX : rightX;
-      top = panelRect.bottom - rect.height;
-    }
-    menu.style.left = Math.round(Math.max(8, Math.min(innerWidth - rect.width - 8, left))) + 'px';
-    menu.style.top = Math.round(Math.max(8, Math.min(innerHeight - rect.height - 8, top))) + 'px';
-    (menu.querySelector('.ces-set-opt.is-on') || menu.querySelector('button')).focus({ preventScroll: true });
+    positionMenu();
+    const activePane = panes[activeTab] || menu;
+    (activePane.querySelector('.ces-set-opt.is-on') || activePane.querySelector('button') || menu.querySelector('button')).focus({ preventScroll: true });
 
     settingsListeners = new AbortController();
     const listeners = { capture: true, signal: settingsListeners.signal };
@@ -590,21 +749,21 @@ export function mountEffortBar(choose) {
       event.stopImmediatePropagation();
       closeSettings(true);
     }, listeners);
-    const off = effects.onSettingsChange(renderChoices, window);
+    const off = effects.onSettingsChange(() => renderChoices(true), window);
     settingsListeners.signal.addEventListener('abort', off, { once: true });
   }
 
   row.addEventListener('contextmenu', event => {
     event.preventDefault();
     event.stopPropagation();
-    openSettings(event.clientX, event.clientY);
+    openSettings(event.clientX, event.clientY, null, 'slider');
   });
   row.addEventListener('keydown', event => {
     if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = row.getBoundingClientRect();
-    openSettings(rect.left, rect.bottom + 4);
+    openSettings(rect.left, rect.bottom + 4, null, 'slider');
   });
 
   return {
@@ -646,6 +805,7 @@ export function mountEffortBar(choose) {
 
 export function mountOrchestratorSwitch(onToggle, onContextMenu) {
   const effects = effortEffects();
+  const mt = motionThemes();
   const slot = document.createElement('div');
   slot.className = 'dk-orch-slot';
   slot.hidden = true;
@@ -691,7 +851,10 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
     ).join('');
   };
 
-  let style = '', icon = '', motion = 'fast';
+  let style = '', engineKey = 'helix', shape = 'pill', icon = '', motion = 'fast';
+  let modelName = '', liveEnergy = 0.85;
+  // The style may follow the slider theme, but the color follows the actual main model.
+  let palette = mt.resolvePalette(modelName);
   let active = false, open = false, disposed = false;
   let width = 196;
   let engine = null;
@@ -699,6 +862,17 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
 
   const sysReduced = () => Boolean(window.matchMedia?.('(prefers-reduced-motion: reduce)').matches);
   const instantTransition = () => sysReduced();
+
+  const surfaceIsLight = () => {
+    try {
+      const bg = getComputedStyle(document.body).backgroundColor || '';
+      const parts = bg.match(/[\d.]+/g);
+      if (!parts || parts.length < 3 || (parts.length > 3 && Number(parts[3]) < 0.5)) return false;
+      return (0.2126 * Number(parts[0]) + 0.7152 * Number(parts[1]) + 0.0722 * Number(parts[2])) / 255 >= 0.5;
+    } catch {
+      return false;
+    }
+  };
 
   const measureWidth = () => {
     const w = Math.round(button.getBoundingClientRect?.().width || 0);
@@ -709,6 +883,167 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
   const stopEngine = () => {
     if (burstRaf) { cancelAnimationFrame(burstRaf); burstRaf = 0; }
     if (engine) { engine.destroy(); engine = null; }
+  };
+
+  const startTheme3D = canvas => {
+    const ctx = canvas?.getContext?.('2d', { alpha: true });
+    if (!ctx) return null;
+    const H = 28;
+    let W = measureWidth();
+    let dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const resize = nextW => {
+      W = Math.max(80, Math.round(nextW || W));
+      dpr = Math.min(window.devicePixelRatio || 1, 2);
+      canvas.width = Math.round(W * dpr);
+      canvas.height = Math.round(H * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    };
+    resize(W);
+
+    let rafId = 0;
+    let target = active ? 1 : 0;
+    let animP = target;
+    let fromP = target;
+    let animStart = performance.now();
+    let oPhase = 0;
+    let oClock = 0;
+    let smoothEnergy = Math.max(0.18, liveEnergy);
+    let lastTime = performance.now();
+    let isLight = surfaceIsLight();
+    let lightCheckedAt = performance.now();
+
+    const paint = now => {
+      const targetE = Math.max(0.18, liveEnergy);
+      const isFull = motion === 'full';
+      const p = animP;
+      const turningOn = target === 1;
+      const reach = turningOn ? mt.easeOutCubic(mt.clamp01(p / 0.72)) : mt.easeInOutCubic(mt.clamp01((p - 0.08) / 0.88));
+      const bgRev = turningOn ? mt.easeOutCubic(mt.clamp01(p / 0.55)) : mt.easeInOutCubic(mt.clamp01(p / 0.85));
+      const impactU = turningOn ? mt.clamp01((p - 0.62) / 0.38) : 0;
+      const impact = turningOn ? Math.sin(impactU * Math.PI) : 0;
+      const primaryPal = palette;
+
+      const pop = turningOn && !instantTransition() ? impact * (isFull ? 0.018 : 0.010) : 0;
+      button.style.transform = pop > 0.001 ? `scale3d(${(1 + pop).toFixed(4)}, ${(1 + pop).toFixed(4)}, 1)` : '';
+
+      const [cr, cg, cb] = primaryPal.core;
+      const eGlow = Math.pow(mt.clamp01(smoothEnergy), 1.3);
+      const gAlpha = (0.05 + 0.24 * eGlow + impact * (isFull ? 0.14 : 0.09)) * bgRev;
+      button.style.boxShadow = bgRev > 0.02
+        ? `0 3px ${Math.round(7 + 9 * eGlow)}px -2px rgba(${cr},${cg},${cb},${gAlpha.toFixed(3)}), inset 0 0 0 1px rgba(255,255,255,${((0.12 + 0.14 * eGlow) * bgRev).toFixed(3)})`
+        : 'inset 0 0 0 1px var(--orch-off-border)';
+
+      mt.paintOrchestrator3D(ctx, {
+        w: W,
+        h: H,
+        engineKey,
+        primaryPal,
+        elementId: primaryPal.id,
+        reach,
+        bgReveal: bgRev,
+        impact,
+        impactU,
+        oPhase,
+        clock: oClock,
+        energy: smoothEnergy,
+        isLight,
+        motion,
+      });
+
+      return Math.abs(smoothEnergy - targetE) > 0.004;
+    };
+
+    const tick = now => {
+      if (!open || slot.hidden) { rafId = 0; return; }
+      const dt = Math.min(0.05, Math.max(0.001, (now - lastTime) / 1000));
+      lastTime = now;
+      if (now - lightCheckedAt >= 800) {
+        isLight = surfaceIsLight();
+        lightCheckedAt = now;
+      }
+      const isFull = motion === 'full';
+      const dur = target === 1 ? (isFull ? 720 : 260) : (isFull ? 500 : 185);
+      if (instantTransition()) {
+        animP = target;
+      } else if (Math.abs(animP - target) > 0.0005) {
+        const u = mt.clamp01((now - animStart) / dur);
+        animP = fromP + (target - fromP) * u;
+        if (u >= 1) animP = target;
+      } else {
+        animP = target;
+      }
+      const targetE = Math.max(0.18, liveEnergy);
+      smoothEnergy += (targetE - smoothEnergy) * (1 - Math.exp(-dt * (isFull ? 9 : 16)));
+      const loopMul = isFull ? 0.74 : 1.25;
+      const phaseBoost = Math.abs(animP - target) > 0.02 ? (isFull ? 1.55 : 2.1) : 1.0;
+      oPhase += dt * (0.82 + smoothEnergy * 1.95) * (palette.speedMul || 1) * loopMul * phaseBoost;
+      oClock += dt * loopMul;
+
+      const energyMoving = paint(now);
+      if (!sysReduced() && (target === 1 || animP > 0.002 || energyMoving)) {
+        rafId = requestAnimationFrame(tick);
+      } else {
+        button.style.transform = '';
+        rafId = 0;
+      }
+    };
+
+    const ensure = () => {
+      if (!rafId && open && !slot.hidden && !sysReduced()) {
+        lastTime = performance.now();
+        rafId = requestAnimationFrame(tick);
+      }
+    };
+
+    paint(performance.now());
+    if (active) ensure();
+
+    return {
+      resize(nextW) {
+        if (Math.abs(nextW - W) >= 1) { resize(nextW); paint(performance.now()); }
+      },
+      setMotion() {
+        if (instantTransition()) {
+          animP = target; fromP = target; button.style.transform = '';
+          paint(performance.now());
+        }
+        if (target === 1) ensure();
+      },
+      setContext() {
+        paint(performance.now());
+        if (target === 1 || animP > 0.002) ensure();
+      },
+      setOn(next, animate) {
+        target = next ? 1 : 0;
+        if (!animate || instantTransition() || !open || slot.hidden) {
+          animP = target; fromP = target; button.style.transform = '';
+          paint(performance.now());
+          if (target === 1) ensure();
+        } else {
+          fromP = animP;
+          animStart = performance.now();
+          ensure();
+        }
+      },
+      setOpen(isOpen) {
+        if (isOpen) {
+          resize(measureWidth());
+          isLight = surfaceIsLight();
+          paint(performance.now());
+          if (target === 1 || animP > 0.002) ensure();
+        } else if (rafId) {
+          cancelAnimationFrame(rafId);
+          rafId = 0;
+          button.style.transform = '';
+        }
+      },
+      destroy() {
+        if (rafId) cancelAnimationFrame(rafId);
+        rafId = 0;
+        button.style.transform = '';
+        button.style.boxShadow = '';
+      },
+    };
   };
 
   const startHelix = canvas => {
@@ -858,7 +1193,7 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
       if (prev < 0.86 && progress >= 0.86 && target === 1 && !instantTransition()) endImpact = 1;
       burst = Math.max(0, burst - dt * (isFull ? 1.25 : 3.8));
       endImpact = Math.max(0, endImpact - dt * (isFull ? 1.6 : 4.6));
-      phase += dt * (isFull ? 2.2 + burst * 8.5 : 2.6 + burst * 6.0);
+      phase += dt * (isFull ? 1.65 + burst * 6.5 : 3.0 + burst * 7.0);
       for (let i = sparks.length - 1; i >= 0; i--) {
         const p = sparks[i];
         p.x += p.vx * dt; p.vx *= Math.pow(0.28, dt); p.angle += p.vAngle * dt; p.life -= p.decay * dt;
@@ -1064,14 +1399,23 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
   const renderMarkup = (replayIfActive = false) => {
     stopEngine();
     slot.dataset.style = style;
+    slot.dataset.engine = engineKey;
+    slot.dataset.shape = shape;
     slot.dataset.icon = icon;
     slot.dataset.motion = motion;
     button.dataset.style = style;
+    button.dataset.engine = engineKey;
+    button.dataset.shape = shape;
     button.dataset.icon = icon;
     button.classList.remove('is-burst');
     const svg = iconMarkup(icon);
 
-    if (style === 'nebula') {
+    if (style === 'theme3d') {
+      button.innerHTML =
+        '<canvas class="dk-orch-canvas" aria-hidden="true"></canvas>' +
+        `<span class="dk-orch-label">${svg}<span>Orchestrator</span></span>`;
+      engine = startTheme3D(button.querySelector('.dk-orch-canvas'));
+    } else if (style === 'nebula') {
       button.innerHTML =
         '<span class="dk-orch-glow" aria-hidden="true"></span>' +
         '<span class="dk-orch-clip" aria-hidden="true"><span class="dk-orch-fill"></span>' +
@@ -1109,20 +1453,44 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
     if (replayIfActive) replayOnOpen();
   };
 
+  const applyAdaptivePalette = () => {
+    const coreRgb = palette.core.join(', ');
+    const glowRgb = palette.glow.join(', ');
+    palette.stops.forEach((stop, i) => slot.style.setProperty('--orch-c' + i, stop));
+    slot.style.setProperty('--orch-core-rgb', coreRgb);
+    slot.style.setProperty('--orch-glow-rgb', glowRgb);
+    slot.style.setProperty('--orch-accent', palette.accent);
+    if (slot.parentElement) slot.parentElement.style.setProperty('--orch-core-rgb', coreRgb);
+  };
+
   const syncPrefs = (replay = false) => {
     const prefs = effects.readSettings(window);
-    const nextStyle = prefs.orchestratorStyle || 'helix';
+    const resolved = mt.resolveOrchestratorEngine(prefs, modelName);
+    const nextStyle = resolved.kind === 'classic' ? resolved.style : 'theme3d';
+    const nextEngineKey = resolved.style;
+    const nextShape = resolved.shape || 'pill';
     const nextIcon = prefs.orchestratorIcon || 'prism';
     const nextMotion = prefs.motion || 'fast';
-    const changed = nextStyle !== style || nextIcon !== icon;
+    const nextPalette = mt.resolvePalette(modelName);
+    const markupChanged = nextStyle !== style || nextIcon !== icon;
+    const engineChanged = nextEngineKey !== engineKey || nextShape !== shape;
     const motionChanged = nextMotion !== motion;
+    const paletteChanged = nextPalette !== palette;
     style = nextStyle;
+    engineKey = nextEngineKey;
+    shape = nextShape;
     icon = nextIcon;
     motion = nextMotion;
+    palette = nextPalette;
     slot.dataset.motion = motion;
-    if (changed) {
+    slot.dataset.engine = engineKey;
+    slot.dataset.shape = shape;
+    button.dataset.engine = engineKey;
+    button.dataset.shape = shape;
+    applyAdaptivePalette();
+    if (markupChanged) {
       renderMarkup(replay);
-    } else if (motionChanged && replay) {
+    } else if ((engineChanged || motionChanged) && replay) {
       engine?.setMotion?.();
       if (active && open && !slot.hidden) {
         if (!instantTransition()) replayOnOpen();
@@ -1130,7 +1498,11 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
           button.classList.remove('is-burst');
           engine?.setOn(true, false);
         }
+      } else {
+        engine?.setContext?.();
       }
+    } else if (paletteChanged || engineChanged) {
+      engine?.setContext?.();
     }
   };
 
@@ -1156,22 +1528,37 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
   button.addEventListener('contextmenu', event => {
     event.preventDefault();
     event.stopPropagation();
-    onContextMenu?.(event.clientX, event.clientY, button);
+    onContextMenu?.(event.clientX, event.clientY, button, 'orch');
   });
   button.addEventListener('keydown', event => {
     if (event.key !== 'ContextMenu' && !(event.shiftKey && event.key === 'F10')) return;
     event.preventDefault();
     event.stopPropagation();
     const rect = button.getBoundingClientRect();
-    onContextMenu?.(rect.left, rect.bottom + 4, button);
+    onContextMenu?.(rect.left, rect.bottom + 4, button, 'orch');
   });
 
   return {
     element: slot,
     button,
-    setState({ visible, disabled, ariaDisabled, checked }) {
+    setContext(nextModel, nextEnergy) {
+      const prevModel = modelName;
+      if (typeof nextModel === 'string' && nextModel) modelName = nextModel;
+      if (typeof nextEnergy === 'number' && Number.isFinite(nextEnergy)) liveEnergy = nextEnergy;
+      if (modelName !== prevModel) {
+        syncPrefs(false);
+      } else {
+        engine?.setContext?.();
+      }
+    },
+    setState({ visible, disabled, ariaDisabled, checked, modelName: nextModel, energy: nextEnergy }) {
       const wasHidden = slot.hidden;
       const prevActive = active;
+      if (typeof nextModel === 'string' && nextModel && nextModel !== modelName) {
+        modelName = nextModel;
+        syncPrefs(false);
+      }
+      if (typeof nextEnergy === 'number' && Number.isFinite(nextEnergy)) liveEnergy = nextEnergy;
       slot.hidden = !visible;
       button.disabled = Boolean(disabled);
       button.setAttribute('aria-disabled', String(Boolean(ariaDisabled)));
@@ -1205,5 +1592,5 @@ export function mountOrchestratorSwitch(onToggle, onContextMenu) {
   };
 }
 
-// Static settings thumbnail uses the same track geometry and colors, without a frame loop.
-export const EFFORT_TRACK_MARKUP = '<div class="ces-inline" data-energy="1" style="--ces-energy:1"><div class="ces-track" style="--ces-fill:calc(100% - 14px);--ces-fill-bg:linear-gradient(90deg,#4c1d95,#9333ea,#c084fc)"><div class="ces-fill" style="width:var(--ces-fill);background:var(--ces-fill-bg)"></div><div class="ces-knob"></div></div></div>';
+// Static settings thumbnail uses the same track geometry and Neon nebula palette, without a frame loop.
+export const EFFORT_TRACK_MARKUP = '<div class="ces-inline" data-energy="1" style="--ces-energy:1"><div class="ces-track" style="--ces-fill:calc(100% - 14px);--ces-fill-bg:linear-gradient(90deg,#3d0d26,#7a193f,#a82c52,#bd534a)"><div class="ces-fill" style="width:var(--ces-fill);background:var(--ces-fill-bg)"><span class="pv-nebula" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div><div class="ces-knob"></div></div></div>';

@@ -50,17 +50,19 @@ Shared on the third footer capsule (request failures take priority when both are
 
 ☑ **First-token wait alert**: An amber capsule appears when a wait reaches the threshold (default `30s`, range `1–999s`). `Wait×2 40s` means two intervals reached the threshold this turn, including a current estimate of 40 seconds. Active tools and streaming stop the live clock. Earlier slow waits remain visible in the panel.
 
-## Enhanced model capsule
+## Models
 
-Replaces the footer’s model button with a panel that matches the native look. Click a model to keep your current effort level.
+Turn off **Revert to native model capsule** at the top of the Models tab to replace the footer’s model button with a panel that matches the native look. Click a model to keep your current effort level. Reverting pauses the features on this tab without changing your saved choices.
 
 ☑ **Hide model tags**: Hides tag badges such as `New` and `Notice` inside the dropdown.
 
 ☑ **Hide default effort**: Hides effort previews in the model dropdown list (the footer button and hover effort submenu still show tiers, and direct clicks still inherit your current effort).
 
-☑ **Customize models**: Expands the list of models discovered from the host so you can toggle individual models on or off (at least one model always remains visible).
+☑ **Model dots**: Shows colored dots next to model names.
 
-☑ **Effort bar**: Keeps the menu open when you switch models and replaces hover submenus with a slider. Click or use the arrow keys to switch tiers immediately. Drag to preview tiers, then release to apply the selection. Right-click the slider to change animation, tick marks, or the Codex / Claude style. Turn it off to restore hover submenus.
+☑ **Customize models**: Automatically expands the list of available models so you can toggle individual models on or off (at least one model always remains visible).
+
+☑ **Effort slider and Orchestrator capsule**: Keeps the menu open when you switch models and replaces hover submenus with a slider. Click or use the arrow keys to switch tiers immediately. Drag to preview tiers, then release to apply the selection. Shows the Orchestrator capsule when the host supports it. Right-click the slider to change animation, tick marks, or style. Turn it off to restore hover submenus.
 
 ## Usage history
 

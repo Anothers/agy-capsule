@@ -1,4 +1,5 @@
 import { effortEffects, mountEffortBar, mountOrchestratorSwitch } from './effort_bar.mjs';
+import { motionThemes } from './motion_themes.mjs';
 
 // The desktop host owns the options and the selection. Re-read both from the
 // current button before writing; a retained composer may belong to another chat.
@@ -217,6 +218,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   const enabled = typeof prefsOrEnabled === 'boolean' ? prefsOrEnabled : prefsOrEnabled?.modelEffortPicker === true;
   const hideTags = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.hideModelTags === true : false;
   const hideDefaultEffort = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.hideDefaultEffort === true : false;
+  const showModelDots = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.showModelDots !== false : true;
   const effortCaption = prefsOrEnabled?.showEffortBar === true ? (labels?.effortLevel || 'Effort level') : '';
   const effortOptions = effortCaption ? settingsLabels?.effortBarOptions : null;
   const customizeList = typeof prefsOrEnabled === 'object' ? prefsOrEnabled?.customizeModelList === true : false;
@@ -238,7 +240,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     (document.documentElement.lang.startsWith('zh') ? '尚未确认切换，请查看原生菜单。' : 'Selection unconfirmed. Check the native menu.');
 
   if (root._modelPicker) {
-    root._modelPicker.setConfig(hiddenList, hideTags, hideDefaultEffort, effortCaption, effortOptions);
+    root._modelPicker.setConfig(hiddenList, hideTags, hideDefaultEffort, effortCaption, effortOptions, showModelDots);
     root._modelPicker.refresh(state, resolveCaption(labels), resolveUnconfirmed(labels));
     return;
   }
@@ -261,7 +263,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   let effortBar = null;
   const orchestratorControl = mountOrchestratorSwitch(
     () => void commitSelection(null, 'switch'),
-    (x, y, target) => effortBar?.openSettings?.(x, y, target),
+    (x, y, target, tab = 'orch') => effortBar?.openSettings?.(x, y, target, tab),
   );
   const status = document.createElement('div');
   status.setAttribute('role', 'status');
@@ -325,6 +327,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   let currentHidden = [...hiddenList];
   let currentHideTags = hideTags;
   let currentHideDefaultEffort = hideDefaultEffort;
+  let currentShowModelDots = showModelDots;
   let currentEffortCaption = effortCaption;
   let currentEffortOptions = effortOptions;
   let currentEffortLabels = [];
@@ -567,7 +570,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     if (currentEffortCaption && group?.isMultiTier) {
       const idx = group.items.findIndex(item => item.label === label);
       if (idx >= 0) color = effortEffects().valueColorFor(group.items[idx].tier, idx, group.items.length,
-        idx === group.items.length - 1, group.items[0].tier.toLowerCase() === 'off', false);
+        idx === group.items.length - 1, group.items[0].tier.toLowerCase() === 'off', false, group.name);
     }
     node.style.color = color;
     node.style.opacity = color ? '1' : '';
@@ -575,13 +578,29 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
   };
 
   applyNativeMode(true);
+  let lastTintTheme = effortEffects().readSettings(window).theme;
+  let lastEffortGroup = null;
+  const retintAll = () => {
+    tintEffort(button.querySelector('.dk-mp-effort'), lastEffortGroup, currentSelected);
+    for (const row of options.querySelectorAll('button.dk-model-row')) {
+      const grp = renderedGroups.get(row.dataset.family);
+      tintEffort(row.querySelector('.dk-mp-effort'), grp, row.dataset.label);
+    }
+  };
+  const offEffortTheme = effortEffects().onSettingsChange(next => {
+    if (next.theme !== lastTintTheme) {
+      lastTintTheme = next.theme;
+      retintAll();
+    }
+  }, window);
 
   const picker = {
     trigger, id: state.conversationId,
-    setConfig(nextHidden, nextHideTags = false, nextHideDefaultEffort = false, nextEffortCaption = '', effortSettings = null) {
+    setConfig(nextHidden, nextHideTags = false, nextHideDefaultEffort = false, nextEffortCaption = '', effortSettings = null, nextShowModelDots = true) {
       currentHidden = Array.isArray(nextHidden) ? [...nextHidden] : [];
       currentHideTags = nextHideTags === true;
       currentHideDefaultEffort = nextHideDefaultEffort === true;
+      currentShowModelDots = nextShowModelDots !== false;
       currentEffortCaption = nextEffortCaption;
       currentEffortOptions = effortSettings;
       if (trigger.hasAttribute('data-deck-model-bubble')) applyNativeMode(true);
@@ -597,6 +616,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
     },
     dispose() {
       clearTimeout(expiry);
+      offEffortTheme?.();
       close();
       orchestratorControl.dispose();
       effortBar?.setOpen(false);
@@ -627,7 +647,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
         queuedEffort = null;
         if (queued && queued !== next.selected) queueMicrotask(() => void commitSelection(queued, 'effort'));
       }
-      const key = JSON.stringify([next.items || next.labels, next.selected, next.orchestrator, pending, currentHidden, currentHideTags, currentHideDefaultEffort, currentEffortCaption, currentEffortOptions?.title]);
+      const key = JSON.stringify([next.items || next.labels, next.selected, next.orchestrator, pending, currentHidden, currentHideTags, currentHideDefaultEffort, currentShowModelDots, currentEffortCaption, currentEffortOptions?.title]);
       if (key === signature) return;
       signature = key;
       hideSub();
@@ -670,6 +690,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
         ?.planners.find(planner => planner.items.some(item => item.label === next.selected));
       const selectedInList = currentEffortCaption && next.orchestrator?.active ? next.orchestrator.standalone : next.selected;
       const effortGroup = currentEffortCaption && (activePlanner || groups.find(group => group.items.some(item => item.label === next.selected)));
+      lastEffortGroup = effortGroup || null;
       if (selectedInList && effortGroup?.isMultiTier) rememberedEffort.set(effortGroup.name, selectedInList);
       tintEffort(button.querySelector('.dk-mp-effort'), effortGroup, next.selected);
       currentEffortLabels = effortGroup ? effortGroup.items.map(item => item.label) : [];
@@ -691,10 +712,14 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
         disabled: orchDisabled,
         ariaDisabled: orchDisabled || pending !== null,
         checked: next.orchestrator?.active === true,
+        modelName: effortGroup?.name || next.selected,
       });
       if (effortGroup) {
         if (!effortBar) {
-          effortBar = mountEffortBar(label => void commitSelection(label, 'effort'));
+          effortBar = mountEffortBar(
+            label => void commitSelection(label, 'effort'),
+            info => orchestratorControl.setContext?.(info?.baseName, info?.energy),
+          );
           orchestratorControl.element.after(effortBar.element);
         }
         effortBar.refresh(effortGroup, next.selected, pending, currentEffortCaption, currentEffortOptions);
@@ -727,6 +752,15 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
         container.append(badge);
       };
 
+      const appendModelDot = (container, name) => {
+        if (!currentShowModelDots) return;
+        const dot = document.createElement('span');
+        dot.className = 'dk-mp-dot';
+        dot.setAttribute('aria-hidden', 'true');
+        dot.style.background = motionThemes().dotColorFor(name);
+        container.append(dot);
+      };
+
       renderedGroups = new Map();
       const focusedFamily = currentEffortCaption && options.getRootNode().activeElement?.closest('button.dk-model-row')?.dataset.family;
       options.replaceChildren();
@@ -739,6 +773,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
           row.setAttribute('aria-disabled', 'true');
           const main = document.createElement('span');
           main.className = 'dk-model-main';
+          appendModelDot(main, group.name);
           const nameEl = document.createElement('span');
           nameEl.className = 'dk-mp-name';
           nameEl.textContent = group.name;
@@ -771,6 +806,7 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
 
         const main = document.createElement('span');
         main.className = 'dk-model-main';
+        if (!group.planners) appendModelDot(main, group.name);
         const nameEl = document.createElement('span');
         nameEl.className = 'dk-mp-name';
         const singleMatch = !group.isMultiTier ? tierRe.exec(group.items[0].label) : null;
@@ -793,8 +829,17 @@ export function syncModelPicker(root, footer, prefsOrEnabled, labels, findFooter
           const displayTier = group.items.find(item => item.label === targetLabel)?.tier || '';
           if (displayTier && !currentHideDefaultEffort) {
             const eff = document.createElement('span');
-            eff.className = 'dk-mp-effort';
-            eff.textContent = displayTier;
+            eff.className = 'dk-mp-effort dk-mp-tier';
+            const value = document.createElement('span');
+            value.textContent = displayTier;
+            eff.append(value);
+            // Reserve the widest tier even when a different tier is selected.
+            for (const { tier } of group.items) {
+              const size = document.createElement('span');
+              size.dataset.sizeTier = tier;
+              size.setAttribute('aria-hidden', 'true');
+              eff.append(size);
+            }
             tintEffort(eff, group, targetLabel);
             main.append(eff);
           }
