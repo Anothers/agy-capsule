@@ -92,9 +92,9 @@ https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
 
 ## 设置
 
-在对话顶部 **… → Extensions → agy-capsule** 打开侧栏，顶部切换“统计”和“设置”两页。
+在对话顶部 **… → Extensions → agy-capsule** 打开侧栏，顶部可切换「统计」「设置」和「模型」。
 
-设置页顶部一行显示当前版本号、**「更新提醒」**开关（点击切换蓝亮状态；默认开启，后台自动检查 GitHub 新版本并在侧栏顶部弹出提示，关闭后不再后台检查）和**「检查更新」**按钮（已是最新时按钮原地显示「已是最新」）。发现新版本时，可点击**「一键更新」**直接从 GitHub Release 下载校验并自动重载完成更新，无需重启 Antigravity（保留所有用户设置），也可点击打开 GitHub Release 手动更新或暂不更新。
+设置页顶部显示已安装版本、默认开启的**「更新提醒」**和**「检查更新」**按钮。关闭提醒后不再后台检查，但仍可手动检查。发现新版本时，卡片会显示「当前版本 → 新版本」；点**「更新」**即可下载、校验并自动重载，保留设置，无需重启 Antigravity。也可以点「版本说明」查看 GitHub 发布页，或点 × 收起。更新失败时，卡片会显示原因，并提供「重试」和「手动更新」。
 
 设置保存在 <code>~/.gemini/config/agy-capsule/settings.json</code>（Windows 为 <code>%USERPROFILE%\.gemini\config\agy-capsule\settings.json</code>），更新和卸载插件都不会覆盖；旧版本留下的文件缺少新选项时自动使用默认值。
 

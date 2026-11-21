@@ -1267,10 +1267,10 @@ await test('Opt-in effort bar animates and switches models in place; default pic
   await page.mouse.move(box.x + 14, y);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width / 2, y, { steps: 6 });
-  assert.deepEqual(await page.evaluate(() => window.effortCalls), ['Gemini 4 Argon (Medium)'], 'commits before mouseup');
+  assert.deepEqual(await page.evaluate(() => window.effortCalls), [], 'dragging previews tiers without committing');
   await page.mouse.move(box.x + box.width - 14, y, { steps: 6 });
   await page.mouse.up();
-  assert.deepEqual(await page.evaluate(() => window.effortCalls), ['Gemini 4 Argon (Medium)', 'Gemini 4 Argon (High)']);
+  assert.deepEqual(await page.evaluate(() => window.effortCalls), ['Gemini 4 Argon (High)'], 'only the release tier is committed');
   assert.equal(await range.getAttribute('aria-valuetext'), 'High', 'the menu stays open');
   assert.equal(await range.getAttribute('data-theme'), 'gemini');
   assert.equal(await range.getAttribute('data-element'), 'argon');
