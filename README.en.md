@@ -52,7 +52,7 @@ Shared on the third footer capsule (request failures take priority when both are
 
 ## Enhanced model capsule
 
-When enabled, seamlessly replaces the native composer footer model button in place with a native-styled model and effort selector (for both existing and new conversations): hover any multi-tier model to pick an effort level in one step from the side submenu, or click a model row directly to switch while inheriting your current effort (downgrading `XHigh`/`Extra`/`Max` to `High` if unsupported). Falls back to the native trigger automatically if the host interface does not match or the footer collapses on very narrow widths.
+Replaces the footer’s model button with a panel that matches the native look. Click a model to keep your current effort level.
 
 ☑ **Hide model tags**: Hides tag badges such as `New` and `Notice` inside the dropdown.
 
