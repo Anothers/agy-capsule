@@ -1,5 +1,5 @@
 // Used inside the sidebar's inline runtime, with no imports.
-export function createVersionPanel(root, check, saveSettings, install, now = Date.now) {
+export function createVersionPanel(root, check, saveSettings, install, now = Date.now, system) {
   const get = id => root.querySelector('#version-' + id);
   const button = get('check');
   const toggle = get('notify');
@@ -11,9 +11,13 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   const dismiss = get('dismiss');
   const updateButton = get('update');
   const updateStatus = get('update-status');
+  const copyButton = get('copy-diagnostics');
+  const copyStatus = get('copy-status');
+  const diagnosticsField = get('diagnostics');
   let t = {}, enabled = false, nextAutoAt = 0;
   let autoBusy = false, manualBusy = false, manualResult, update, dismissed;
   let revision = 0, installResult;
+  let copiedResult, copyState;
   const installing = () => ['updating', 'updated'].includes(installResult?.status);
   const visibleUpdate = () => update && (installing() || update.manual || enabled) && update.latestVersion !== dismissed;
   const setText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
@@ -43,10 +47,12 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
       releaseCheck: t.versionUpdateRelease, download: t.versionUpdateDownload, redirect: t.versionUpdateRedirect,
       size: t.versionUpdateSize, archive: t.versionUpdateArchive, version: t.versionUpdateArchive,
       incomplete: t.versionUpdateArchive, notInstalled: t.versionUpdateNotInstalled,
+      permission: t.versionUpdatePermission, locked: t.versionUpdateLocked, pathConflict: t.versionUpdatePathConflict,
       recovery: t.versionUpdateRecovery, sidecar: t.versionSidecar,
     }[installResult?.reason] || t.versionUpdateInstall;
     const installReason = installResult?.reason === 'rateLimit' ? rateLimitMessage(installResult.retryAt) : updateError;
-    setText(updateStatus, state === 'updated' ? t.versionUpdated : installFailed ? installReason : '');
+    const restored = installResult?.diagnostics?.restored === true ? ' ' + t.versionUpdateRestored : '';
+    setText(updateStatus, state === 'updated' ? t.versionUpdated : installFailed ? installReason + restored : '');
     setText(release, installFailed ? t.versionUpdateManual : t.versionRelease);
     release.hidden = busy;
     dismiss.setAttribute('aria-label', t.versionDismiss);
@@ -63,6 +69,15 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     const shown = visibleUpdate();
     notice.hidden = !shown;
     notice.dataset.state = state;
+    copyButton.hidden = !shown || !installFailed;
+    setText(copyButton, t.versionCopyDiagnostics);
+    if (copyButton.hidden || copiedResult !== installResult) {
+      copyState = '';
+      diagnosticsField.value = '';
+    }
+    diagnosticsField.hidden = copyState !== 'manual';
+    diagnosticsField.setAttribute('aria-label', t.versionCopyDiagnostics);
+    setText(copyStatus, copyState === 'copied' ? t.versionDiagnosticsCopied : copyState === 'manual' ? t.versionDiagnosticsManual : '');
     const downloadFailed = ['timeout', 'download', 'redirect'].includes(installResult?.reason);
     setText(details, !shown || state === 'updated' ? ''
       : state === 'updating' ? t.versionUpdating
@@ -127,8 +142,30 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     } catch (error) { installResult = { status: 'error', reason: error?.name === 'TimeoutError' ? 'timeout' : 'sidecar' }; }
     render();
   }
+  async function copyDiagnostics() {
+    if (copyButton.hidden) return;
+    const result = installResult;
+    const { step = 'sidebar-request', code, path, restored } = result.diagnostics || {};
+    const text = 'agy-capsule update diagnostics\n' + JSON.stringify({
+      system, currentVersion: update.currentVersion, targetVersion: update.latestVersion,
+      reason: result.reason, step, code, path, restored,
+    }, null, 2);
+    let nextState = 'copied';
+    try { await root.ownerDocument.defaultView.navigator.clipboard.writeText(text); }
+    catch { nextState = 'manual'; }
+    if (copyButton.hidden || result !== installResult) return;
+    copiedResult = result;
+    copyState = nextState;
+    render();
+    if (nextState === 'manual') {
+      diagnosticsField.value = text;
+      diagnosticsField.focus();
+      diagnosticsField.select();
+    }
+  }
   button.addEventListener('click', checkManually);
   updateButton.addEventListener('click', installUpdate);
+  copyButton.addEventListener('click', copyDiagnostics);
   toggle.addEventListener('click', () => saveSettings({ notifyUpdates: !enabled }));
   dismiss.addEventListener('click', () => {
     dismissed = update?.latestVersion;

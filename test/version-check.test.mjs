@@ -164,7 +164,8 @@ test('the version notification setting defaults on for old settings and persists
 });
 
 test('sidebar renders all three languages, dismisses automatic prompts and reports manual results even after opt-out', async () => {
-  const ids = ['check', 'notify', 'status', 'manual', 'notice', 'available', 'release', 'dismiss', 'update', 'update-status'];
+  const ids = ['check', 'notify', 'status', 'manual', 'notice', 'available', 'release', 'dismiss', 'update', 'update-status',
+    'copy-diagnostics', 'copy-status', 'diagnostics'];
   const nodes = Object.fromEntries(ids.map(id => {
     assert.match(UI_HTML, new RegExp('id="version-' + id + '"'));
     return [id, {
@@ -173,6 +174,7 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
       addEventListener(_name, fn) { this.click = fn; },
       removeAttribute(name) { delete this[name]; },
       focus() { this.focused = true; },
+      select() { this.selected = this.value; },
     }];
   }));
   assert.doesNotMatch(UI_HTML, /setting-notify-updates|data-setting-card="notifyUpdates"|version-setting-help/);
@@ -181,7 +183,11 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
   assert.match(UI_HTML, /id="version-status" role="status"/);
   assert.match(UI_HTML, /id="version-release" target="_blank" rel="noopener noreferrer"/);
   assert.doesNotMatch(UI_HTML, /id="version-instructions"/);
-  const root = { querySelector: key => nodes[key.slice('#version-'.length)] };
+  const copied = [];
+  const root = {
+    querySelector: key => nodes[key.slice('#version-'.length)],
+    ownerDocument: { defaultView: { navigator: { clipboard: { writeText: async text => copied.push(text) } } } },
+  };
   let now = 0;
   const calls = [];
   const saved = [];
@@ -201,7 +207,7 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
   }, version => {
     installs.push(version);
     return new Promise(resolve => { resolveInstall = resolve; });
-  }, () => now);
+  }, () => now, 'win32 10.0.26100');
   setLanguage('en', true);
   assert.equal(nodes.notify.textContent, 'Update alerts');
   assert.equal(nodes.notify.dataset.active, 'true');
@@ -268,10 +274,11 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
   assert.match(nodes.status.textContent, /09:24:30 後可重試/);
   assert.equal(nodes.manual.hidden, false);
   assert.equal(nodes.manual.textContent, '手動更新');
-  for (const [locale, label, progress, failure, retry, manual] of [
-    ['en', 'Update', 'Updating…', /exceeds the size limit/, 'Retry', 'Manual update'],
-    ['zh-CN', '更新', '更新中…', /超过大小限制/, '重试', '手动更新'],
-    ['zh-TW', '更新', '更新中…', /超過大小限制/, '重試', '手動更新'],
+  const locked = { status: 'error', reason: 'locked', diagnostics: { step: 'replace', code: 'EBUSY', path: 'plugin.json', restored: true } };
+  for (const [locale, label, progress, error, failure, retry, manual] of [
+    ['en', 'Update', 'Updating…', { status: 'error', reason: 'size' }, /exceeds the size limit/, 'Retry', 'Manual update'],
+    ['zh-CN', '更新', '更新中…', { status: 'error', reason: 'install' }, /^无法完成本地更新。$/, '重试', '手动更新'],
+    ['zh-TW', '更新', '更新中…', locked, /使用中.*已還原/, '重試', '手動更新'],
   ]) {
     setLanguage(locale, false);
     reply = update;
@@ -281,10 +288,11 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
     assert.equal(nodes.update.textContent, progress);
     assert.equal(nodes.update.disabled, true);
     assert.equal(nodes.dismiss.disabled, true);
+    assert.equal(nodes['copy-diagnostics'].hidden, true);
     const count = installs.length;
     await nodes.update.click();
     assert.equal(installs.length, count, 'duplicate clicks do not launch another install');
-    resolveInstall({ status: 'error', reason: 'size' });
+    resolveInstall(error);
     await pending;
     assert.match(nodes['update-status'].textContent, failure);
     assert.equal(nodes.update.disabled, false);
@@ -292,7 +300,24 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
     assert.equal(nodes.release.textContent, manual);
     assert.equal(nodes.release.href, update.releaseUrl);
   }
+  assert.equal(nodes['copy-diagnostics'].hidden, false);
+  assert.equal(nodes['copy-diagnostics'].textContent, '複製診斷資訊');
+  await nodes['copy-diagnostics'].click();
+  assert.equal(nodes['copy-status'].textContent, '已複製診斷資訊。');
+  assert.equal(nodes.diagnostics.hidden, true);
+  assert.equal(copied.length, 1);
+  assert.deepEqual(JSON.parse(copied[0].slice(copied[0].indexOf('\n') + 1)), {
+    system: 'win32 10.0.26100', currentVersion: '1.0.0', targetVersion: '2.0.0', reason: 'locked', ...locked.diagnostics,
+  });
+  delete root.ownerDocument.defaultView.navigator.clipboard;
+  await nodes['copy-diagnostics'].click();
+  assert.equal(nodes.diagnostics.hidden, false);
+  assert.equal(nodes.diagnostics.focused, true);
+  assert.equal(nodes.diagnostics.selected, copied[0]);
   const retry = nodes.update.click();
+  assert.equal(nodes['copy-diagnostics'].hidden, true);
+  assert.equal(nodes.diagnostics.hidden, true);
+  assert.equal(nodes['copy-status'].textContent, '');
   resolveInstall({ status: 'updated', version: '2.0.0' });
   await retry;
   assert.deepEqual(installs, ['2.0.0', '2.0.0', '2.0.0', '2.0.0']);
@@ -361,7 +386,7 @@ test('installed SDK serves version checks over loopback only and requires an aut
   assert.equal((await install('GET', token)).code, 405);
   const checkout = await install('POST', token);
   assert.equal(checkout.code, 200);
-  assert.deepEqual(JSON.parse(checkout.body), { status: 'error', reason: 'notInstalled' });
+  assert.deepEqual(JSON.parse(checkout.body), { status: 'error', reason: 'notInstalled', diagnostics: { step: 'inspect' } });
   assert.equal((await send('OPTIONS', { Origin: 'https://example.test' })).headers['access-control-allow-origin'], undefined);
   assert.equal(externalRequests, 0, 'unauthenticated POST and GET never trigger an upstream request');
   for (const headers of headerCases) {

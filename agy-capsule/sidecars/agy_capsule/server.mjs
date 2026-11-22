@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { readdirSync, statSync, existsSync, realpathSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, release } from 'node:os';
 import { join, basename, dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { startDeckInjector } from './deck_injector.mjs';
@@ -27,7 +27,8 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 155;
+const PANEL_VERSION = 156;
+const diagnosticSystem = [process.platform, release().match(/^\d+(?:\.\d+)*/)?.[0]].filter(Boolean).join(' ');
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1128,6 +1129,8 @@ const UI_HTML = `<!DOCTYPE html>
     #version-dismiss { width: 24px; height: 26px; color: var(--muted-foreground, #a2a2a9); background: transparent; }
     #version-dismiss:hover:not(:disabled) { color: inherit; background: var(--secondary, #303034); }
     #version-update-status { color: var(--muted-foreground, #a2a2a9); }
+    #version-copy-diagnostics { margin-top: 4px; padding: 3px 0; border: 0; background: transparent; font-family: inherit; cursor: pointer; }
+    #version-diagnostics:not([hidden]) { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 5px; color: inherit; background: transparent; border: 1px solid var(--border, #555); border-radius: 5px; resize: vertical; }
     .version-progress { display: none; height: 3px; overflow: hidden; margin-top: 7px; border-radius: 2px; background: color-mix(in srgb, #2b7fff 18%, transparent); }
     .version-progress::before { content: ""; display: block; width: 35%; height: 100%; border-radius: inherit; background: #2b7fff; animation: version-progress 1.2s ease-in-out infinite alternate; }
     .version-notice[data-state="updating"] .version-progress { display: block; }
@@ -1628,6 +1631,9 @@ const UI_HTML = `<!DOCTYPE html>
       </div>
       <div class="version-progress" aria-hidden="true"></div>
       <p class="version-feedback" id="version-update-status" role="status" aria-atomic="true"></p>
+      <button type="button" class="version-link" id="version-copy-diagnostics" hidden></button>
+      <p class="version-feedback" id="version-copy-status" role="status"></p>
+      <textarea id="version-diagnostics" rows="5" readonly hidden></textarea>
     </div>
   </div>
   <aside class="cdp-notice" id="cdp-notice" role="status" aria-atomic="true" hidden>
@@ -2004,6 +2010,8 @@ const UI_HTML = `<!DOCTYPE html>
         const res = await postApi('${UPDATE_ROUTE}', { version }, AbortSignal.timeout(60_000));
         return res.json();
       },
+      undefined,
+      ${JSON.stringify(diagnosticSystem)},
     );
     let savingSettings = false;
     let settingsEpoch = 0;
