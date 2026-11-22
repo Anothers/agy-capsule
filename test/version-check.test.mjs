@@ -207,7 +207,7 @@ test('the version notification setting defaults on for old settings and persists
 
 test('sidebar renders all three languages, dismisses automatic prompts and reports manual results even after opt-out', async () => {
   const ids = ['check', 'notify', 'status', 'notice', 'available', 'release', 'dismiss', 'update',
-    'copy-diagnostics', 'copy-status', 'diagnostics'];
+    'copy-diagnostics', 'copy-prompt', 'copy-status', 'diagnostics'];
   const nodes = Object.fromEntries(ids.map(id => {
     assert.match(UI_HTML, new RegExp('id="version-' + id + '"'));
     return [id, {

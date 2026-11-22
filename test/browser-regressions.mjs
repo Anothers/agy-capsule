@@ -661,7 +661,7 @@ await test('Sidebar downloads only after an update click and offers retry before
   const browser = await chromium.launch(launch);
   t.after(() => browser.close());
   const page = await browser.newPage({ viewport: { width: 320, height: 700 } });
-  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { value: undefined }));
+  await page.addInitScript(() => Object.defineProperty(navigator, 'clipboard', { configurable: true, value: undefined }));
   const data = snapshot();
   data.prefs = { ...data.prefs, settingsLanguage: 'zh-CN' };
   const latestVersion = '999.0.0';
@@ -688,9 +688,11 @@ await test('Sidebar downloads only after an update click and offers retry before
   const button = page.locator('#version-update');
   const notice = page.locator('#version-notice');
   const message = notice.locator('#version-status');
+  const copyPrompt = notice.getByRole('button', { name: '复制 AI 提示词' });
   await button.waitFor();
   assert.equal(await button.textContent(), '更新');
   assert.deepEqual(requests, []);
+  assert.equal(await copyPrompt.isVisible(), false);
   assert.equal(await page.locator('#version-notice').getByText(/update\.bat|update\.sh/).count(), 0);
   await button.click();
   await page.getByRole('button', { name: '更新中…' }).waitFor();
@@ -707,11 +709,34 @@ await test('Sidebar downloads only after an update click and offers retry before
   const diagnostics = page.getByRole('textbox', { name: '复制诊断信息' });
   await page.getByText('无法访问剪贴板，请手动复制已选中的文本。').waitFor();
   assert.equal(await diagnostics.evaluate(el => el.selectionEnd - el.selectionStart), (await diagnostics.inputValue()).length);
-  assert.match(await diagnostics.inputValue(), /"code": "EBUSY"/);
+  const diagnosticText = await diagnostics.inputValue();
+  assert.match(diagnosticText, /"code": "EBUSY"/);
+  await copyPrompt.click();
+  const promptField = page.getByRole('textbox', { name: '复制 AI 提示词' });
+  const prompt = await promptField.inputValue();
+  assert.ok(prompt.startsWith('请帮我把 agy-capsule 更新到下方的目标版本。'));
+  assert.ok(prompt.includes('https://github.com/Lumidarin/agy-capsule/releases/tag/v' + latestVersion));
+  const script = process.platform === 'win32' ? 'update.bat' : 'sh update.sh';
+  assert.ok(prompt.includes('接下来需要你手动做什么'));
+  assert.ok(prompt.includes('不要运行更新脚本'));
+  assert.ok(prompt.includes('在我退出之前'));
+  assert.ok(prompt.includes('在解压目录运行 ' + script + '（写出完整路径'));
+  assert.ok(prompt.includes('不要让我退出后等你继续'));
+  assert.ok(!prompt.includes('{script}'));
+  assert.ok(prompt.endsWith(diagnosticText));
+  assert.equal(await promptField.evaluate(el => el.selectionEnd - el.selectionStart), prompt.length);
+  await page.evaluate(() => Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: async text => { window.testClipboardText = text; } },
+  }));
+  await copyPrompt.click();
+  await page.getByText('已复制更新提示词，可粘贴给 AI。').waitFor();
+  assert.equal(await page.evaluate(() => window.testClipboardText), prompt);
+  await promptField.waitFor({ state: 'hidden' });
   await button.click();
   await notice.locator('#version-available').getByText('更新完成，正在重新加载…').waitFor();
   assert.equal(await notice.getAttribute('data-state'), 'updated');
   await copy.waitFor({ state: 'hidden' });
+  await copyPrompt.waitFor({ state: 'hidden' });
   await diagnostics.waitFor({ state: 'hidden' });
   assert.equal(await button.isDisabled(), true);
   assert.deepEqual(requests, [{ version: latestVersion }, { version: latestVersion }]);

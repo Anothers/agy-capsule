@@ -10,12 +10,13 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   const dismiss = get('dismiss');
   const updateButton = get('update');
   const copyButton = get('copy-diagnostics');
+  const promptButton = get('copy-prompt');
   const copyStatus = get('copy-status');
   const diagnosticsField = get('diagnostics');
   let t = {}, enabled = false, nextAutoAt = 0;
   let autoBusy = false, manualBusy = false, manualResult, update, dismissed;
   let revision = 0, installResult;
-  let copiedResult, copyState;
+  let copiedResult, copyState, copyKind, copyRequest = 0;
   const installing = () => ['updating', 'updated'].includes(installResult?.status);
   const visibleUpdate = () => update && (installing() || update.manual || enabled) && update.latestVersion !== dismissed;
   const setText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
@@ -67,15 +68,15 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     dismiss.setAttribute('aria-label', state === 'available' ? t.versionDismiss : t.versionClose);
     notice.hidden = !state;
     notice.dataset.state = state;
-    copyButton.hidden = !installFailed;
+    copyButton.hidden = promptButton.hidden = !installFailed;
     setText(copyButton, t.versionCopyDiagnostics);
-    if (copyButton.hidden || copiedResult !== installResult) {
-      copyState = '';
-      diagnosticsField.value = '';
-    }
+    setText(promptButton, t.versionCopyPrompt);
+    if (!installFailed || copiedResult !== installResult) copyState = '';
     diagnosticsField.hidden = copyState !== 'manual';
-    diagnosticsField.setAttribute('aria-label', t.versionCopyDiagnostics);
-    setText(copyStatus, copyState === 'copied' ? t.versionDiagnosticsCopied : copyState === 'manual' ? t.versionDiagnosticsManual : '');
+    if (diagnosticsField.hidden) diagnosticsField.value = '';
+    diagnosticsField.setAttribute('aria-label', copyKind === 'prompt' ? t.versionCopyPrompt : t.versionCopyDiagnostics);
+    const copiedMessage = copyKind === 'prompt' ? t.versionPromptCopied : t.versionDiagnosticsCopied;
+    setText(copyStatus, copyState === 'copied' ? copiedMessage : copyState === 'manual' ? t.versionDiagnosticsManual : '');
     const downloadFailed = ['timeout', 'download', 'redirect'].includes(installResult?.reason);
     setText(details, ({
       checking: t.versionChecking, current: t.versionUpToDate, 'check-error': t.versionCheckFailed,
@@ -141,19 +142,30 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     } catch (error) { installResult = { status: 'error', reason: error?.name === 'TimeoutError' ? 'timeout' : 'sidecar' }; }
     render();
   }
-  async function copyDiagnostics() {
+  async function copyFailure(kind) {
     if (copyButton.hidden) return;
+    const request = ++copyRequest;
     const result = installResult;
     const { step = 'sidebar-request', code, path, restored } = result.diagnostics || {};
-    const text = 'agy-capsule update diagnostics\n' + JSON.stringify({
+    const diagnostics = 'agy-capsule update diagnostics\n' + JSON.stringify({
       system, currentVersion: update.currentVersion, targetVersion: update.latestVersion,
       reason: result.reason, step, code, path, restored,
     }, null, 2);
+    let text = diagnostics;
+    if (kind === 'prompt') {
+      const script = system?.startsWith('win32') ? 'update.bat' : 'sh update.sh';
+      const prompt = t.versionUpdatePrompt
+        .replace('{release}', update.releaseUrl || release.dataset.releasesUrl)
+        .replace('{script}', script);
+      const handoff = result.reason === 'locked' ? t.versionPromptLocked.replace('{script}', script) : '';
+      text = [prompt, handoff, diagnostics].filter(Boolean).join('\n\n');
+    }
     let nextState = 'copied';
     try { await root.ownerDocument.defaultView.navigator.clipboard.writeText(text); }
     catch { nextState = 'manual'; }
-    if (copyButton.hidden || result !== installResult) return;
+    if (request !== copyRequest || copyButton.hidden || result !== installResult) return;
     copiedResult = result;
+    copyKind = kind;
     copyState = nextState;
     render();
     if (nextState === 'manual') {
@@ -164,7 +176,8 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   }
   button.addEventListener('click', checkManually);
   updateButton.addEventListener('click', () => notice.dataset.state === 'check-error' ? checkManually() : installUpdate());
-  copyButton.addEventListener('click', copyDiagnostics);
+  copyButton.addEventListener('click', () => copyFailure('diagnostics'));
+  promptButton.addEventListener('click', () => copyFailure('prompt'));
   toggle.addEventListener('click', () => saveSettings({ notifyUpdates: !enabled }));
   dismiss.addEventListener('click', () => {
     if (dismiss.disabled) return;

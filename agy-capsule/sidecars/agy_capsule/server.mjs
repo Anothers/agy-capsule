@@ -27,7 +27,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 160;
+const PANEL_VERSION = 162;
 const diagnosticSystem = [process.platform, release().match(/^\d+(?:\.\d+)*/)?.[0]].filter(Boolean).join(' ');
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
@@ -1141,7 +1141,7 @@ const UI_HTML = `<!DOCTYPE html>
     #version-status { color: var(--muted-foreground, #a2a2a9); overflow-wrap: anywhere; }
     #version-status:not(:empty) { margin-top: 3px; }
     .version-links { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; }
-    #version-copy-diagnostics { padding: 0; border: 0; background: transparent; font-family: inherit; line-height: inherit; text-align: start; cursor: pointer; }
+    button.version-link { padding: 0; border: 0; background: transparent; font-family: inherit; line-height: inherit; text-align: start; cursor: pointer; }
     #version-diagnostics:not([hidden]) { display: block; box-sizing: border-box; width: 100%; margin-top: 5px; padding: 5px; color: inherit; background: transparent; border: 1px solid var(--border, #555); border-radius: 5px; resize: vertical; }
     .version-progress { display: none; height: 3px; overflow: hidden; margin-top: 7px; border-radius: 2px; background: color-mix(in srgb, #2b7fff 18%, transparent); }
     .version-progress::before { content: ""; display: block; width: 35%; height: 100%; border-radius: inherit; background: #2b7fff; animation: version-progress 1.2s ease-in-out infinite alternate; }
@@ -1642,6 +1642,7 @@ const UI_HTML = `<!DOCTYPE html>
           <div class="version-links">
             <a class="version-link" id="version-release" target="_blank" rel="noopener noreferrer" data-releases-url="${RELEASES_URL}" hidden></a>
             <button type="button" class="version-link" id="version-copy-diagnostics" hidden></button>
+            <button type="button" class="version-link" id="version-copy-prompt" hidden></button>
           </div>
         </div>
         <button type="button" id="version-update" aria-describedby="version-status" hidden></button>

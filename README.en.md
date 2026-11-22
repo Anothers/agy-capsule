@@ -103,7 +103,7 @@ An optional section at the bottom of the sidebar’s Statistics page.
 
 Open **… → Extensions → agy-capsule** from the conversation header, then use the Statistics, Settings, and Models tabs at the top.
 
-The **Settings** tab shows the installed version, an **Update alerts** switch (on by default), and a **Check updates** button. Turning alerts off stops background checks but leaves manual checks available. When a new release is available, the card shows the installed and new versions. Click **Update** to download, verify, and reload the plugin without restarting Antigravity or losing your settings. Click **Release notes** to open the GitHub release, or × to dismiss. If an update fails, the card shows why and offers **Retry** and **Manual update**.
+The **Settings** tab shows the installed version, an **Update alerts** switch (on by default), and a **Check updates** button. Turning alerts off stops background checks but leaves manual checks available. When a new release is available, the card shows the installed and new versions. Click **Update** to download, verify, and reload the plugin without restarting Antigravity or losing your settings. Click **Release notes** to open the GitHub release, or × to dismiss. If an update fails, the card shows why and offers **Retry**, **Manual update**, and **Copy diagnostics**. Use **Copy AI prompt** to send the update steps and diagnostics to an AI assistant.
 
 Preferences live in <code>~/.gemini/config/agy-capsule/settings.json</code> (<code>%USERPROFILE%\.gemini\config\agy-capsule\settings.json</code> on Windows). Updates and uninstalls keep them; options missing from older files fall back to defaults.
 
