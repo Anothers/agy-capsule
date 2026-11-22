@@ -708,8 +708,10 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       group.hidden = !view.visible;
       group.dataset.alertMode = view.mode;
       const prefix = view.mode === 'queue' ? t.queueHeading : t.requestFailure;
-      group.querySelector('.dk-pill').setAttribute('aria-label', `${prefix}: ${view.label}`);
-      group.querySelector('.dk-pill').title = [view.heading || view.label, view.detail, view.diagnostic].filter(Boolean).join('\n');
+      const pill = group.querySelector('.dk-pill');
+      pill.setAttribute('aria-label', `${prefix}: ${view.label}`);
+      if (view.mode === 'queue') pill.removeAttribute('title');
+      else pill.title = [view.heading || view.label, view.detail, view.diagnostic].filter(Boolean).join('\n');
     }
     return view;
   }
@@ -811,7 +813,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return t;
   }
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return { version: 101, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
+  return { version: 102, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
 }
 
-export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 101) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
+export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 102) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
