@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { rename } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -256,6 +258,46 @@ test('installs only staged runtime files under the reload marker, rejects concur
   assert.deepEqual(target, { ...JSON.parse(sidecar), command: installed.command, env: installed.env, args: installed.args });
   for (let i = 0; i < 40 && !reloads; i++) await delay(10);
   assert.equal(reloads, 1);
+});
+
+test('Windows can update and roll back while the running sidecar holds its working directory', { skip: process.platform !== 'win32' }, async t => {
+  const instance = fixture(t);
+  const { directory, marker, root, settings, pluginsDirectory } = instance;
+  const child = spawn(process.execPath, ['-e', 'console.log("ready"); setInterval(() => {}, 1000)'], {
+    cwd: directory, stdio: ['ignore', 'pipe', 'inherit'], windowsHide: true,
+  });
+  const exited = once(child, 'exit');
+  try {
+    await once(child.stdout, 'data');
+    await assert.rejects(rename(directory, join(root, 'check-lock')), { code: 'EBUSY' });
+
+    const fetch = async () => new Response(archive());
+    const failing = instance.updater(fetch, {
+      move: (from, to) => {
+        assert.equal(existsSync(marker), true);
+        if (to === join(directory, 'server.mjs') && from.includes(join('next', SIDECAR_PATH))) {
+          throw Object.assign(new Error('simulated failure installing a staged file'), { code: 'EACCES' });
+        }
+        return rename(from, to);
+      },
+    });
+    assert.deepEqual(await failing(latest), {
+      status: 'error', reason: 'permission', diagnostics: { step: 'replace', code: 'EACCES', path: SIDECAR_PATH, restored: true },
+    });
+    instance.unchanged();
+
+    assert.deepEqual(await instance.updater(fetch)(latest), { status: 'updated', version: latest });
+    assert.equal(child.exitCode, null, 'the running sidecar still holds the directory');
+    assert.equal(readFileSync(join(root, 'plugin.json'), 'utf8'), manifest(latest));
+    assert.match(readFileSync(join(directory, 'server.mjs'), 'utf8'), /program\.mjs/);
+    assert.equal(existsSync(join(directory, 'stale.mjs')), false);
+    assert.equal(existsSync(marker), false);
+    assert.deepEqual(readdirSync(pluginsDirectory), ['agy-capsule']);
+    assert.equal(readFileSync(settings, 'utf8'), '{"notifyUpdates":false}');
+  } finally {
+    child.kill();
+    await exited;
+  }
 });
 
 test('one-click update preserves a custom Windows Node executable and uses the new manifest', async t => {

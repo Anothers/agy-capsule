@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, readFile, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, join, posix, relative, resolve, win32 } from 'node:path';
 import { compareVersions, parseVersion, REPO } from './version_check.mjs';
@@ -105,6 +105,10 @@ async function replaceRuntime(root, stage, backup, currentVersion, move) {
   }
   const changes = [];
   let activePath = 'plugin.json';
+  async function moveTracked(from, to) {
+    await move(from, to);
+    changes.push({ path: activePath, from, to });
+  }
   try {
     const local = await diskManifest(root, 'plugin.json');
     if (parseVersion(local?.version)?.version !== currentVersion) throw new UpdateError('releaseChanged');
@@ -116,29 +120,35 @@ async function replaceRuntime(root, stage, backup, currentVersion, move) {
       activePath = path;
       const incoming = join(stage, path);
       if (!(await info(incoming))) continue;
-      const change = { path, live: join(root, path), incoming, saved: join(backup, basename(path)), hadOld: false, swapped: false };
-      changes.push(change);
-      const existing = await info(change.live);
+      const live = join(root, path);
+      const saved = join(backup, basename(path));
+      const existing = await info(live);
       if (existing) {
         if (path === SIDECAR_PATH ? !existing.isDirectory() : !existing.isFile()) throw new UpdateError('pathConflict');
-        await move(change.live, change.saved);
-        change.hadOld = true;
+        try { await moveTracked(live, saved); }
+        catch (error) {
+          if (path !== SIDECAR_PATH || process.platform !== 'win32' || fileErrorReasons[error.code] !== 'locked') throw error;
+          // Antigravity runs the sidecar with this directory as its CWD.
+          // Windows locks the directory itself, not all of its children.
+          await mkdir(saved);
+          for (const name of await readdir(live)) await moveTracked(join(live, name), join(saved, name));
+          for (const name of await readdir(incoming)) await moveTracked(join(incoming, name), join(live, name));
+          continue;
+        }
       }
-      await move(incoming, change.live);
-      change.swapped = true;
+      await moveTracked(incoming, live);
     }
     activePath = markerName;
     await unlink(marker);
   } catch (error) {
     const failedPath = activePath;
-    const restored = changes.some(change => change.swapped || change.hadOld);
+    const restored = changes.length > 0;
     try {
       // Roll back in reverse; leave the marker and backup in place only if the
       // rollback itself fails, so the watcher won't boot a partial install.
-      for (const change of changes.reverse()) {
-        activePath = change.path;
-        if (change.swapped) await move(change.live, change.incoming);
-        if (change.hadOld) await move(change.saved, change.live);
+      for (const { path, from, to } of changes.reverse()) {
+        activePath = path;
+        await move(to, from);
       }
       activePath = markerName;
       await unlink(marker);
