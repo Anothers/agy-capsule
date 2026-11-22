@@ -10,7 +10,7 @@
 
 宣传片（v1.4，也可以在 [B 站](https://www.bilibili.com/video/BV1bayvz5Ey1/) 观看）：
 
-https://github.com/user-attachments/assets/56c460b2-9650-403c-95d3-313cd76a0ac9
+https://github.com/user-attachments/assets/3857a452-9fac-42b0-8f26-57759af8fefc
 
 <details>
 <summary>往期宣传片（v1.1）</summary>

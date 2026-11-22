@@ -10,7 +10,7 @@ Context usage, multi-model quotas, cache status and generation speed in the Anti
 
 Promo video (v1.4, also on [Bilibili](https://www.bilibili.com/video/BV1bayvz5Ey1/)):
 
-https://github.com/user-attachments/assets/56c460b2-9650-403c-95d3-313cd76a0ac9
+https://github.com/user-attachments/assets/3857a452-9fac-42b0-8f26-57759af8fefc
 
 <details>
 <summary>Earlier promo video (v1.1)</summary>
