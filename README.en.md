@@ -8,9 +8,18 @@ Context usage, multi-model quotas, cache status and generation speed in the Anti
   <img src="assets/readme/hero.gif" width="100%" alt="Hovering the context, quota and request-failure capsules in turn to open their panels" />
 </p>
 
-Promo video (v1.1, also on [Bilibili](https://www.bilibili.com/video/BV1ggsy6rEQM/)):
+Promo video (v1.4, also on [Bilibili](https://www.bilibili.com/video/BV1bayvz5Ey1/)):
+
+https://github.com/user-attachments/assets/56c460b2-9650-403c-95d3-313cd76a0ac9
+
+<details>
+<summary>Earlier promo video (v1.1)</summary>
+
+Also on [Bilibili](https://www.bilibili.com/video/BV1ggsy6rEQM/):
 
 https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
+
+</details>
 
 Almost every feature in this plugin is highly customizable, from a minimal footer to a full-featured monitor — items marked with `☑` below can be freely toggled or configured in sidebar [Settings](#settings).
 

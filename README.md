@@ -8,9 +8,18 @@
   <img src="assets/readme/hero.gif" width="100%" alt="依次悬停上下文、配额和请求失败胶囊（无鼠标），弹出对应面板" />
 </p>
 
-宣传片（v1.1，也可以在 [B 站](https://www.bilibili.com/video/BV1ggsy6rEQM/) 观看）：
+宣传片（v1.4，也可以在 [B 站](https://www.bilibili.com/video/BV1bayvz5Ey1/) 观看）：
+
+https://github.com/user-attachments/assets/56c460b2-9650-403c-95d3-313cd76a0ac9
+
+<details>
+<summary>往期宣传片（v1.1）</summary>
+
+也可以在 [B 站](https://www.bilibili.com/video/BV1ggsy6rEQM/) 观看：
 
 https://github.com/user-attachments/assets/9f5bf1c6-1284-4e17-a380-defdee83f60c
+
+</details>
 
 本插件几乎所有功能都支持高度自定义，无论是极简底栏还是全面监控都能按需组合；下方带 `☑` 的条目均可在侧栏[设置](#设置)中自由开关或调整。
 
