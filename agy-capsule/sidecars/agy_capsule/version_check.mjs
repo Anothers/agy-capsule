@@ -5,6 +5,7 @@ export const RELEASES_URL = `https://github.com/${REPO}/releases`;
 const LATEST_RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 export const VERSION_ROUTE = '/api/version';
 const maxUnspecifiedRateLimits = 4;
+const manualDedupeMs = 5000;
 
 function getRetryAt(headers, now) {
   const readDeadline = (name, offset = 0) => {
@@ -61,6 +62,7 @@ export function createVersionChecker({
 } = {}) {
   let cached = null;
   let nextAutoAt = 0;
+  let manualReuseUntil = 0;
   let inFlight = null;
   let unspecifiedRateLimits = 0;
   const result = (status, fields) => ({ status, currentVersion, ...fields });
@@ -93,7 +95,7 @@ export function createVersionChecker({
       return error(signal.aborted || err?.name === 'TimeoutError' ? 'timeout' : err instanceof SyntaxError ? 'invalidRelease' : 'network');
     }
   }
-  return async function check(mode) {
+  return async function check(mode, { fresh = false } = {}) {
     if (!['manual', 'auto'].includes(mode)) return error('invalidMode');
     const automatic = mode === 'auto';
     const enabled = () => getPrefs?.()?.notifyUpdates === true;
@@ -102,6 +104,12 @@ export function createVersionChecker({
     if (cached?.reason === 'rateLimit' && (
       now() < cached.retryAt || (automatic && unspecifiedRateLimits >= maxUnspecifiedRateLimits)
     )) return automatic ? result('idle') : cached;
+    const dedupeManual = !automatic && !fresh;
+    // Reuse only a recent manual check, not the background cache. An in-flight
+    // fetch may contain newer information, so prefer waiting for it.
+    if (dedupeManual && !inFlight && cached && cached.reason !== 'rateLimit' && now() < manualReuseUntil) {
+      return cached;
+    }
     if (!inFlight && (!automatic || !cached || now() >= nextAutoAt)) {
       inFlight = load().then(value => {
         unspecifiedRateLimits = value.reason === 'rateLimit' && value.retryAt === null
@@ -116,6 +124,7 @@ export function createVersionChecker({
       }).finally(() => { inFlight = null; });
     }
     const value = await (inFlight || cached);
+    if (dedupeManual && value.reason !== 'rateLimit') manualReuseUntil = now() + manualDedupeMs;
     if (automatic && !enabled()) return result('disabled');
     return automatic && value.status === 'error' ? result('idle') : value;
   };

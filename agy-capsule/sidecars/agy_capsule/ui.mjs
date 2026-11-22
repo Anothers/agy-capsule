@@ -27,7 +27,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       notifyCdpRestart: 'Restart recovery notice',
       notifyUpdates: 'Update alerts', notifyUpdatesHelp: 'Check GitHub automatically and show new releases in the sidebar. Turning this off stops background checks.',
       versionCheck: 'Check updates', versionChecking: 'Checking…', versionUpToDate: 'Up to date',
-      versionAvailable: 'Update available', versionRelease: 'Release notes', versionDismiss: 'Not now',
+      versionAvailable: 'Update available', versionRelease: 'Release notes', versionDismiss: 'Not now', versionClose: 'Dismiss notice',
       versionUpdate: 'Update', versionUpdating: 'Updating…', versionUpdated: 'Update complete. Reloading…',
       versionUpdateFailed: 'Update failed', versionDownloadFailed: 'Download failed', versionUpdateManual: 'Manual update', versionRetry: 'Retry',
       versionUpdateBusy: 'An update is already running.', versionUpdateTimeout: 'The download timed out.',
@@ -42,7 +42,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       versionUpdateRecovery: 'Could not restore all files. Reinstall the plugin manually.',
       versionCopyDiagnostics: 'Copy diagnostics', versionDiagnosticsCopied: 'Diagnostics copied.',
       versionDiagnosticsManual: 'Clipboard unavailable. Copy the selected text manually.',
-      versionFailed: 'Couldn’t check: {reason}', versionNetwork: 'Could not reach GitHub.', versionTimeout: 'GitHub took too long to respond.',
+      versionCheckFailed: 'Check failed', versionNetwork: 'Could not reach GitHub.', versionTimeout: 'GitHub took too long to respond.',
       versionSidecar: 'The sidebar version service could not be reached.',
       versionRateLimit: 'GitHub is rate-limiting requests. Try again later.', versionNoRelease: 'GitHub did not return a published release.',
       versionRateLimitUntil: 'GitHub is rate-limiting requests. Try again after {time}.',
@@ -87,6 +87,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       context: 'Context details', quota: 'Model quotas',
       contextUsed: 'Used', contextLimit: 'Limit', contextRemaining: 'Remaining', uncachedInput: 'Uncached input', ofLimit: '{pct} of context limit', resetAt: 'Resets', resetUnknown: 'Reset time not reported',
       contextScope: 'Current request input context (excludes its new output).',
+      contextCompactionEstimate: 'Antigravity’s estimate after compaction. The next measured request replaces it.',
       turn0Tip: 'Starting context baseline for this cycle (system prompt and carried history).',
       readTip: 'Added context input (user messages, read files, and tool outputs).',
       writeTip: 'Prior model replies and tool calls kept in current context (excludes latest reply).',
@@ -161,7 +162,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       notifyCdpRestart: '更新重启失效提醒',
       notifyUpdates: '更新提醒', notifyUpdatesHelp: '自动查询 GitHub 并在侧栏提示新版本；关闭后不再后台检查。',
       versionCheck: '检查更新', versionChecking: '检查中…', versionUpToDate: '已是最新版本',
-      versionAvailable: '发现新版本', versionRelease: '版本说明', versionDismiss: '暂不更新',
+      versionAvailable: '发现新版本', versionRelease: '版本说明', versionDismiss: '暂不更新', versionClose: '关闭提示',
       versionUpdate: '更新', versionUpdating: '更新中…', versionUpdated: '更新完成，正在重新加载…',
       versionUpdateFailed: '更新失败', versionDownloadFailed: '下载失败', versionUpdateManual: '手动更新', versionRetry: '重试',
       versionUpdateBusy: '已有更新正在进行。', versionUpdateTimeout: '下载超时。',
@@ -176,7 +177,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       versionUpdateRecovery: '未能恢复全部文件，请手动重新安装插件。',
       versionCopyDiagnostics: '复制诊断信息', versionDiagnosticsCopied: '已复制诊断信息。',
       versionDiagnosticsManual: '无法访问剪贴板，请手动复制已选中的文本。',
-      versionFailed: '检测失败：{reason}', versionNetwork: '无法连接 GitHub。', versionTimeout: 'GitHub 响应超时。',
+      versionCheckFailed: '检测失败', versionNetwork: '无法连接 GitHub。', versionTimeout: 'GitHub 响应超时。',
       versionSidecar: '无法连接侧栏的版本检测服务。',
       versionRateLimit: 'GitHub 限制了请求频率，请稍后再试。', versionNoRelease: 'GitHub 未返回已发布的版本。',
       versionRateLimitUntil: 'GitHub 暂时限制请求，{time} 后可重试。',
@@ -221,6 +222,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       context: '上下文明细', quota: '模型配额',
       contextUsed: '已用', contextLimit: '上限', contextRemaining: '剩余', uncachedInput: '非缓存输入', ofLimit: '占上限 {pct}', resetAt: '重置时间', resetUnknown: '未提供重置时间',
       contextScope: '最近一次请求的输入上下文（不含刚生成的输出）。',
+      contextCompactionEstimate: 'Antigravity 提供的压缩后估算；下一次请求返回实测值后会替换。',
       turn0Tip: '当前周期起始输入基线，包含系统提示词与初始历史。',
       readTip: '对话中新增的输入内容，包括用户消息、读取的文件与工具返回结果。',
       writeTip: '留在当前上下文中的累计回复与工具调用（不含最近一次生成）。',
@@ -295,7 +297,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       notifyCdpRestart: '更新重啟失效提醒',
       notifyUpdates: '更新提醒', notifyUpdatesHelp: '自動查詢 GitHub 並在側欄提示新版本；關閉後不再於背景檢查。',
       versionCheck: '檢查更新', versionChecking: '檢查中…', versionUpToDate: '已是最新版本',
-      versionAvailable: '發現新版本', versionRelease: '版本說明', versionDismiss: '暫不更新',
+      versionAvailable: '發現新版本', versionRelease: '版本說明', versionDismiss: '暫不更新', versionClose: '關閉提示',
       versionUpdate: '更新', versionUpdating: '更新中…', versionUpdated: '更新完成，正在重新載入…',
       versionUpdateFailed: '更新失敗', versionDownloadFailed: '下載失敗', versionUpdateManual: '手動更新', versionRetry: '重試',
       versionUpdateBusy: '已有更新正在進行。', versionUpdateTimeout: '下載逾時。',
@@ -310,7 +312,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       versionUpdateRecovery: '未能還原所有檔案，請手動重新安裝外掛。',
       versionCopyDiagnostics: '複製診斷資訊', versionDiagnosticsCopied: '已複製診斷資訊。',
       versionDiagnosticsManual: '無法存取剪貼簿，請手動複製選取的文字。',
-      versionFailed: '檢查失敗：{reason}', versionNetwork: '無法連線至 GitHub。', versionTimeout: 'GitHub 回應逾時。',
+      versionCheckFailed: '檢查失敗', versionNetwork: '無法連線至 GitHub。', versionTimeout: 'GitHub 回應逾時。',
       versionSidecar: '無法連線至側欄的版本檢查服務。',
       versionRateLimit: 'GitHub 限制了請求頻率，請稍後再試。', versionNoRelease: 'GitHub 未傳回已發佈的版本。',
       versionRateLimitUntil: 'GitHub 暫時限制請求，{time} 後可重試。',
@@ -355,6 +357,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
       context: '上下文明細', quota: '模型配額',
       contextUsed: '已用', contextLimit: '上限', contextRemaining: '剩餘', uncachedInput: '非快取輸入', ofLimit: '佔上限 {pct}', resetAt: '重設時間', resetUnknown: '未提供重設時間',
       contextScope: '最近一次請求的輸入上下文（不含剛產生的輸出）。',
+      contextCompactionEstimate: 'Antigravity 提供的壓縮後估算；下一次請求回傳實測值後會取代它。',
       turn0Tip: '目前週期起始輸入基線，包含系統提示詞與初始歷史。',
       readTip: '對話中新增的輸入內容，包括使用者訊息、讀取的檔案與工具回傳結果。',
       writeTip: '留在目前上下文中的累計回覆與工具呼叫（不含最近一次生成）。',
@@ -517,13 +520,15 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     };
   }
   function contextBreakdown(data = {}) {
-    const maxCtx = data.maxContextTokens || 0;
-    const ctx = data.contextTokens || 0;
-    const cached = data.cachedIn || 0;
-    const out = data.totalOutputTokens || 0;
-    const think = data.totalThinkingTokens || 0;
-    const turn0 = data.turn0Tokens || 0;
-    const read = Math.max(0, ctx - turn0 - out - think);
+    const estimate = data.contextEstimate;
+    const estimated = Boolean(estimate);
+    const maxCtx = estimate?.limit ?? (data.maxContextTokens || 0);
+    const ctx = estimate?.tokens ?? (data.contextTokens || 0);
+    const cached = estimated ? 0 : data.cachedIn || 0;
+    const out = estimated ? 0 : data.totalOutputTokens || 0;
+    const think = estimated ? 0 : data.totalThinkingTokens || 0;
+    const turn0 = estimated ? 0 : data.turn0Tokens || 0;
+    const read = estimated ? 0 : Math.max(0, ctx - turn0 - out - think);
     const hasMax = maxCtx > 0;
     const usedPctNum = hasMax ? Math.round((ctx / maxCtx) * 100) : 0;
     const usedPctExact = hasMax ? Math.min(100, (ctx / maxCtx) * 100) : 0;
@@ -532,9 +537,10 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     const pctStr = (val) => (hasMax ? Math.round((val / maxCtx) * 100) + '%' : (ctx === 0 ? '0%' : '--%'));
     const usedPct = hasMax ? usedPctNum + '%' : (ctx === 0 ? '0%' : '--%');
     return {
-      ctx, maxCtx, cached, turn0, read, think, out,
+      ctx, maxCtx, cached, turn0, read, think, out, estimated,
       usedPct,
       usedFrac: formatTokens(ctx) + ' / ' + (hasMax ? formatTokens(maxCtx) : '--'),
+      segEstimateW: (estimated ? usedPctExact : 0).toFixed(2) + '%',
       segTurn0W: (turn0 * scale).toFixed(2) + '%',
       segReadW: (read * scale).toFixed(2) + '%',
       segThinkW: (think * scale).toFixed(2) + '%',
@@ -550,7 +556,8 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     };
   }
   function contextTooltips(data = {}, t = dictionaries.en) {
-    const { ctx: context, maxCtx: limit, cached, turn0, read, think, out: write } = contextBreakdown(data);
+    const { ctx: context, maxCtx: limit, cached, turn0, read, think, out: write, estimated } = contextBreakdown(data);
+    if (estimated) return { overview: `${t.contextCompactionEstimate}\n${t.contextUsed} ${formatTokens(context)} / ${t.contextLimit} ${formatTokens(limit)}` };
     const row = (key, value) => `${t[key]}: ${formatTokens(value)} tokens${limit > 0 ? ` · ${t.ofLimit.replace('{pct}', Math.round(value / limit * 100) + '%')}` : ''}\n${t[key + 'Tip']}`;
     return {
       overview: `${t.contextScope}\n${t.contextUsed} ${formatTokens(context)} / ${t.contextLimit} ${limit > 0 ? formatTokens(limit) : '—'} · ${t.contextRemaining} ${limit > 0 ? formatTokens(Math.max(0, limit - context)) : '—'}\n${t.cachedInput} ${formatTokens(cached)} · ${t.uncachedInput} ${formatTokens(data.uncachedIn ?? Math.max(0, context - cached))}`,
@@ -559,7 +566,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
   }
   function renderContextTooltips(root, data, t) {
     const tips = contextTooltips(data, t);
-    for (const node of root.querySelectorAll('[data-context-tip]')) node.title = tips[node.dataset.contextTip];
+    for (const node of root.querySelectorAll('[data-context-tip]')) node.title = tips[node.dataset.contextTip] || '';
   }
   function quotaTooltip(data, t = dictionaries.en) {
     const date = data.resetTime ? new Date(data.resetTime) : null;
@@ -649,9 +656,12 @@ export function createPresentation(turnFactory = createTurnPresentation) {
   }
   function alertView(data = {}, prefs = {}, t = dictionaries.en, nowMs = Date.now(), running = false) {
     const kind = data.requestError?.kind || 'none';
-    const ratio = data.maxContextTokens > 0 ? (data.contextTokens || 0) / data.maxContextTokens : 0;
-    const contextTone = prefs.showContextWarnings === false ? '' : kind === 'context_overflow' || ratio >= .9 ? 'error' : ratio >= .75 ? 'warning' : '';
-    const contextTip = !contextTone ? '' : kind === 'context_overflow' ? t.overflowContextTip : t.highContextTip;
+    const limit = data.contextEstimate?.limit ?? data.maxContextTokens;
+    const tokens = data.contextEstimate?.tokens ?? data.contextTokens;
+    const ratio = limit > 0 ? (tokens || 0) / limit : 0;
+    const overflow = kind === 'context_overflow' && !data.contextEstimate;
+    const contextTone = prefs.showContextWarnings === false ? '' : overflow || ratio >= .9 ? 'error' : ratio >= .75 ? 'warning' : '';
+    const contextTip = !contextTone ? '' : overflow ? t.overflowContextTip : t.highContextTip;
     const errorVisible = prefs.showRequestErrors !== false && ['quota_exhausted', 'rate_limited', 'request_timeout', 'network_error', 'auth_error', 'service_unavailable', 'unknown'].includes(kind);
     if (errorVisible) {
       const label = t['error_' + kind];
@@ -801,7 +811,7 @@ export function createPresentation(turnFactory = createTurnPresentation) {
     return t;
   }
   const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-  return { version: 97, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
+  return { version: 101, dictionaries, locale, systemLocale, apply, appearance, formatReset, escapeHtml, formatTokens, cacheThresholds, makeCacheRingSvg, cacheTooltip, cacheView, contextBreakdown, contextTooltips, renderContextTooltips, quotaTooltip, applyQuotaTooltips, quotaColor, makeRingSvg, formatGroupTitle, formatBucketLabel, activeGroupColor, quotaView, alertView, renderAlerts, generationText, generationMarkup, renderGeneration, ...turnMethods };
 }
 
-export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 97) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;
+export const getPresentationScript = () => `if (globalThis.__agyCapsulePresentation?.version !== 101) globalThis.__agyCapsulePresentation = (${createPresentation.toString()})(${createTurnPresentation.toString()});`;

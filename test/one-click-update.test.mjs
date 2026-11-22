@@ -118,6 +118,22 @@ test('tarball validates every redirect and the final HTTPS download host', async
   await assert.rejects(downloadArchive(archiveUrl, { fetchImpl: async () => redirected }), { reason: 'redirect' });
 });
 
+test('one-click update revalidates a recent manual result before downloading', async t => {
+  const instance = fixture(t);
+  let checks = 0;
+  const checkVersion = createVersionChecker({
+    currentVersion: '1.1.0', now: () => 1000,
+    fetchImpl: async () => Response.json({ tag_name: ++checks === 1 ? 'v' + latest : 'v1.2.1' }),
+  });
+  const updater = instance.updater(() => assert.fail('a changed release must not download'), { checkVersion });
+  assert.equal((await checkVersion('manual')).latestVersion, latest);
+  assert.equal((await checkVersion('manual')).latestVersion, latest);
+  assert.equal(checks, 1);
+  assert.deepEqual(await updater(latest), { status: 'error', reason: 'releaseChanged', diagnostics: { step: 'verify-release' } });
+  assert.equal(checks, 2, 'installer skips the short and the long cache');
+  instance.unchanged();
+});
+
 test('one-click update returns the shared rate limit deadline without downloading', async t => {
   const instance = fixture(t);
   let checks = 0, downloads = 0;

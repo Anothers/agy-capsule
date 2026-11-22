@@ -4,13 +4,11 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   const button = get('check');
   const toggle = get('notify');
   const message = get('status');
-  const manualLink = get('manual');
   const notice = get('notice');
   const details = get('available');
   const release = get('release');
   const dismiss = get('dismiss');
   const updateButton = get('update');
-  const updateStatus = get('update-status');
   const copyButton = get('copy-diagnostics');
   const copyStatus = get('copy-status');
   const diagnosticsField = get('diagnostics');
@@ -30,18 +28,22 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   }
   function render() {
     const busy = installing();
-    const state = installResult?.status || 'available';
+    const showUpdate = visibleUpdate();
+    const state = showUpdate ? installResult?.status || 'available' : manualBusy ? 'checking'
+      : manualResult?.status === 'error' ? 'check-error' : manualResult?.status === 'current' ? 'current' : '';
     const installFailed = state === 'error';
+    const checkFailed = state === 'check-error';
     button.disabled = manualBusy || busy;
     toggle.disabled = busy;
-    dismiss.disabled = busy;
+    dismiss.disabled = busy || manualBusy;
     updateButton.disabled = busy;
     setText(button, t[manualBusy ? 'versionChecking' : 'versionCheck']);
     setText(toggle, t.notifyUpdates);
     toggle.title = t.notifyUpdatesHelp;
     toggle.dataset.active = String(enabled);
     toggle.setAttribute('aria-pressed', String(enabled));
-    setText(updateButton, state === 'updating' ? t.versionUpdating : installFailed ? t.versionRetry : t.versionUpdate);
+    updateButton.hidden = !checkFailed && !['available', 'updating', 'error'].includes(state);
+    setText(updateButton, state === 'updating' ? t.versionUpdating : checkFailed || installFailed ? t.versionRetry : t.versionUpdate);
     const updateError = {
       busy: t.versionUpdateBusy, timeout: t.versionUpdateTimeout, releaseChanged: t.versionUpdateChanged,
       releaseCheck: t.versionUpdateRelease, download: t.versionUpdateDownload, redirect: t.versionUpdateRedirect,
@@ -52,24 +54,20 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     }[installResult?.reason] || t.versionUpdateInstall;
     const installReason = installResult?.reason === 'rateLimit' ? rateLimitMessage(installResult.retryAt) : updateError;
     const restored = installResult?.diagnostics?.restored === true ? ' ' + t.versionUpdateRestored : '';
-    setText(updateStatus, state === 'updated' ? t.versionUpdated : installFailed ? installReason + restored : '');
-    setText(release, installFailed ? t.versionUpdateManual : t.versionRelease);
-    release.hidden = busy;
-    dismiss.setAttribute('aria-label', t.versionDismiss);
-    const failed = manualResult?.status === 'error';
-    const rateLimited = manualResult?.reason === 'rateLimit';
-    const reason = rateLimited ? rateLimitMessage(manualResult.retryAt) : { timeout: t.versionTimeout, noRelease: t.versionNoRelease,
+    const checkLimited = checkFailed && manualResult.reason === 'rateLimit';
+    const checkReason = checkLimited ? rateLimitMessage(manualResult.retryAt) : { timeout: t.versionTimeout, noRelease: t.versionNoRelease,
       invalidRelease: t.versionInvalidRelease, localVersion: t.versionLocalMissing, sidecar: t.versionSidecar,
       http: t.versionHttp?.replace('{status}', manualResult?.httpStatus) }[manualResult?.reason] || t.versionNetwork;
-    const current = manualResult?.status === 'current';
-    message.dataset.state = current ? 'current' : failed ? 'error' : '';
-    setText(message, current ? t.versionUpToDate : failed ? t.versionFailed.replace('{reason}', reason) : '');
-    setText(manualLink, t.versionUpdateManual);
-    manualLink.hidden = !rateLimited;
-    const shown = visibleUpdate();
-    notice.hidden = !shown;
+    setText(message, checkFailed ? checkReason : installFailed ? installReason + restored : '');
+    const link = checkLimited ? release.dataset.releasesUrl : state === 'available' || installFailed ? update.releaseUrl : '';
+    release.hidden = !link;
+    setText(release, checkLimited || installFailed ? t.versionUpdateManual : t.versionRelease);
+    if (link) release.href = link;
+    else release.removeAttribute('href');
+    dismiss.setAttribute('aria-label', state === 'available' ? t.versionDismiss : t.versionClose);
+    notice.hidden = !state;
     notice.dataset.state = state;
-    copyButton.hidden = !shown || !installFailed;
+    copyButton.hidden = !installFailed;
     setText(copyButton, t.versionCopyDiagnostics);
     if (copyButton.hidden || copiedResult !== installResult) {
       copyState = '';
@@ -79,12 +77,12 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     diagnosticsField.setAttribute('aria-label', t.versionCopyDiagnostics);
     setText(copyStatus, copyState === 'copied' ? t.versionDiagnosticsCopied : copyState === 'manual' ? t.versionDiagnosticsManual : '');
     const downloadFailed = ['timeout', 'download', 'redirect'].includes(installResult?.reason);
-    setText(details, !shown || state === 'updated' ? ''
-      : state === 'updating' ? t.versionUpdating
-      : installFailed ? (downloadFailed ? t.versionDownloadFailed : t.versionUpdateFailed)
-      : t.versionAvailable + ':\u00a0' + update.currentVersion + ' → ' + update.latestVersion);
-    if (shown) release.href = update.releaseUrl;
-    else release.removeAttribute('href');
+    setText(details, ({
+      checking: t.versionChecking, current: t.versionUpToDate, 'check-error': t.versionCheckFailed,
+      updating: t.versionUpdating, updated: t.versionUpdated,
+      error: downloadFailed ? t.versionDownloadFailed : t.versionUpdateFailed,
+      available: showUpdate ? t.versionAvailable + ':\u00a0' + update.currentVersion + ' → ' + update.latestVersion : '',
+    })[state] || '');
   }
   function sync(prefs, labels) {
     t = labels;
@@ -134,6 +132,7 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   async function installUpdate() {
     if (installing() || !visibleUpdate()) return;
     revision++;
+    update = { ...update, manual: true };
     installResult = { status: 'updating' };
     render();
     try {
@@ -164,13 +163,16 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     }
   }
   button.addEventListener('click', checkManually);
-  updateButton.addEventListener('click', installUpdate);
+  updateButton.addEventListener('click', () => notice.dataset.state === 'check-error' ? checkManually() : installUpdate());
   copyButton.addEventListener('click', copyDiagnostics);
   toggle.addEventListener('click', () => saveSettings({ notifyUpdates: !enabled }));
   dismiss.addEventListener('click', () => {
+    if (dismiss.disabled) return;
     dismissed = update?.latestVersion;
+    manualResult = null;
     render();
     button.focus();
+    if (root.ownerDocument.activeElement !== button) root.ownerDocument.querySelector?.('.sidebar-tabs [aria-selected="true"]')?.focus();
   });
   return { sync, checkAutomatically, checkManually };
 }

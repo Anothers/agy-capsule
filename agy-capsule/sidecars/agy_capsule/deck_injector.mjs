@@ -53,6 +53,29 @@ function conversationIdOf(el) {
   return /^[0-9a-f-]{36}$/i.test(id || '') ? id : '';
 }
 
+// The host's conversation provider receives contextWindowUsage independently of
+// model usage. Look up only the visible composer's conversation on its Fiber path.
+export function readCompactionEstimate(footer, conversationId) {
+  const key = Object.keys(footer).find(key => key.startsWith('__reactFiber$'));
+  for (let fiber = key && footer[key], depth = 0; fiber && depth < 100; fiber = fiber.return, depth++) {
+    const contexts = [fiber.memoizedProps?.value];
+    for (let dep = fiber.dependencies?.firstContext; dep; dep = dep.next) contexts.push(dep.memoizedValue);
+    for (const value of contexts) {
+      const state = value?.getAgentStates?.()?.get?.(conversationId)?.provider?.getState?.();
+      if (state?.conversationId !== conversationId) continue;
+      const usage = state.contextWindowUsage;
+      if (usage?.estimatedAfterCompaction !== true) return null;
+      const { estimatedTokensUsed: tokens, maxContextTokens: limit, generatorMetadataIndex } = usage;
+      if (Number.isSafeInteger(tokens) && tokens > 0 && Number.isSafeInteger(limit) && limit > 0
+        && Number.isSafeInteger(generatorMetadataIndex) && generatorMetadataIndex >= 0) {
+        return { tokens, limit, generatorMetadataIndex };
+      }
+      return null;
+    }
+  }
+  return null;
+}
+
 // The child transcript and the child composer share a wrapper. The composer
 // wrapper survives even when the host omits the input or native model button.
 function findSubagentAnchors(footer) {
@@ -749,6 +772,7 @@ function pageMount(d, childAnchor = null) {
         #deck-metrics-strip[data-context-marker="dot"][data-context-layout="rows"] .dk-item-row > .dk-dot,
         #deck-metrics-strip[data-turn-marker="dot"][data-turn-layout="rows"] .turn-bar-line { border-radius: 50%; }
         #deck-metrics-strip[data-show-context-breakdown="false"] .dk-list { display: none; }
+        #deck-metrics-strip[data-context-estimated] :is(.dk-cache-bar, .dk-list) { display: none; }
         #deck-metrics-strip .dk-item-label { order: var(--agy-order-label, 0); }
         #deck-metrics-strip .dk-item-k { order: var(--agy-order-value, 1); }
         #deck-metrics-strip .dk-item-pct { order: var(--agy-order-percent, 2); }
@@ -778,6 +802,7 @@ function pageMount(d, childAnchor = null) {
             <div class="dk-seg" data-el="segRead" style="width: 0%; background: #388bfd"></div>
             <div class="dk-seg" data-el="segThink" style="width: 0%; background: #00b386"></div>
             <div class="dk-seg" data-el="segOut" style="width: 0%; background: #e86a24"></div>
+            <div class="dk-seg" data-el="segEstimate" style="width: 0%; background: #8b949e"></div>
           </div>
           <div class="dk-list">
             <div class="dk-item-row" data-context-tip="turn0">
@@ -1037,6 +1062,7 @@ function pageMount(d, childAnchor = null) {
     syncModelPicker(root, footerLeft, d.prefs, labels, findFooterLeft,
       presentation.dictionaries[d.prefs?.settingsLanguage] || labels);
   }
+  root.toggleAttribute('data-context-estimated', d.contextEstimated);
   presentation.renderContextTooltips(root, d.contextData, labels);
   const now = Date.now();
   const alerts = presentation.renderAlerts(root, { ...d.contextData, requestError: d.requestError, turnQueue: d.turnQueue }, d.prefs, labels, now, cancelBtnVisible || !!d.turnQueue?.hasPendingPlanner);
@@ -1461,7 +1487,8 @@ function pageMount(d, childAnchor = null) {
   if (segOut) segOut.style.width = d.segOutW;
   if (segThink) segThink.style.width = d.segThinkW;
   if (segTurn0) segTurn0.style.width = d.segTurn0W;
-  if (ctxIconSvg) ctxIconSvg.style.color = d.ctxIconColor || '';
+  root.querySelector('[data-el="segEstimate"]').style.width = d.segEstimateW;
+  if (ctxIconSvg) ctxIconSvg.style.color = d.contextEstimated ? '' : d.ctxIconColor || '';
   if (dotCached && dotCached.innerHTML !== d.cacheIconSvg) {
     dotCached.innerHTML = d.cacheIconSvg;
   }
@@ -1559,7 +1586,8 @@ function toView(d) {
   quotaHtml += '</div>';
   return {
     subagent: d.subagent,
-    hasContext: Number.isFinite(d.contextTokens) && d.contextTokens > 0 && Number.isFinite(d.maxContextTokens) && d.maxContextTokens > 0,
+    hasContext: Number.isFinite(ctx.ctx) && ctx.ctx > 0 && Number.isFinite(ctx.maxCtx) && ctx.maxCtx > 0,
+    contextEstimated: ctx.estimated,
     prefs: d.prefs || { language: 'en' },
     requestTimingAvailable: d.requestTimingAvailable !== false,
     generation: d.requestTimingAvailable === false ? null : (d.generation || null),
@@ -1568,8 +1596,8 @@ function toView(d) {
     turnMetrics: d.turnMetrics || null,
     requestError: d.requestError || { kind: 'none' },
     cloudPaygo: d.cloudPaygo === true,
-    cache: { contextTokens: ctx.ctx, cachedIn: ctx.cached, lastStepEpochMs: d.lastStepEpochMs || 0 },
-    contextData: { contextTokens: ctx.ctx, maxContextTokens: ctx.maxCtx, cachedIn: ctx.cached, uncachedIn: d.uncachedIn, turn0Tokens: ctx.turn0, totalOutputTokens: ctx.out, totalThinkingTokens: ctx.think },
+    cache: { contextTokens: d.contextTokens, cachedIn: d.cachedIn, lastStepEpochMs: d.lastStepEpochMs || 0 },
+    contextData: { contextTokens: d.contextTokens, maxContextTokens: d.maxContextTokens, cachedIn: d.cachedIn, uncachedIn: d.uncachedIn, turn0Tokens: d.turn0Tokens, totalOutputTokens: d.totalOutputTokens, totalThinkingTokens: d.totalThinkingTokens, contextEstimate: d.contextEstimate },
     pillCtx: ctx.usedPct,
     ctxIconColor,
     usedPctText: ctx.usedPct + ' used',
@@ -1578,6 +1606,7 @@ function toView(d) {
     segOutW: ctx.segOutW,
     segThinkW: ctx.segThinkW,
     segTurn0W: ctx.segTurn0W,
+    segEstimateW: ctx.segEstimateW,
     cacheIndicator,
     cacheProgressPct,
     cacheProgressColor,
@@ -1685,7 +1714,7 @@ function installRuntime(owner, hash) {
     readState(caller) {
       if (caller < owner) return 'superseded';
       const { footer, conversationId, ids, hasKnownChildAnchor } = sync();
-      let modelConversationId = null, modelFamilies = null;
+      let modelConversationId = null, modelFamilies = null, contextEstimate = null;
       if (footer) {
         try {
           const trigger = footer.querySelector('button[data-testid="model-selector-trigger"]');
@@ -1695,10 +1724,15 @@ function installRuntime(owner, hash) {
             modelFamilies = pickerState.families;
           }
         } catch {}
+        try {
+          if (conversationIdOf(mainView) === conversationId && conversationId) {
+            contextEstimate = readCompactionEstimate(footer, conversationId);
+          }
+        } catch {}
       }
       let effortSync = null;
       try { effortSync = effortEffects().readPendingPatch(); } catch {}
-      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync,
+      return { owner, hash, path: location.pathname, hasFooter: !!footer, modelConversationId, modelFamilies, effortSync, contextEstimate,
         conversationId, loadedMain: !!data, hasKnownChildAnchor, subagentIds: [...ids], loadedSubagentIds: [...children.keys()] };
     },
     ackEffortSync(caller, rev) {
@@ -1749,7 +1783,7 @@ function installRuntime(owner, hash) {
 }
 
 export function buildRuntimeBundle(owner = INSTANCE_TS) {
-  const functions = [toView, findFooterLeft, conversationIdOf, findSubagentAnchors, resolveInheritedLabel, readPickerState, createMotionThemes, motionThemes, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
+  const functions = [toView, findFooterLeft, conversationIdOf, readCompactionEstimate, findSubagentAnchors, resolveInheritedLabel, readPickerState, createMotionThemes, motionThemes, createUpstreamEffort, effortEffects, mountEffortBar, mountOrchestratorSwitch, syncModelPicker, readCloudTrajectory, pageMount, installRuntime].map(fn => fn.toString()).join('\n');
   const effortBar = `const EFFORT_BAR_CSS=${JSON.stringify(EFFORT_BAR_CSS)};`;
   const source = getPresentationScript() + '\n' + effortBar + '\n' + functions;
   const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
@@ -1809,6 +1843,7 @@ export function startDeckInjector(inspect, options = {}) {
   // 'unknown' until the first lookup; the sidebar explains 'missing' / 'unreachable'.
   let cdpState = 'unknown';
   let availableModels = new Map();
+  let availableEstimates = new Map();
   let discovery = 'unknown', noAnchorSince = null, failedRounds = 0;
   const now = options.now || Date.now;
   const composerOrigin = createComposerOriginResolver(options.productRoots, options.env, now);
@@ -1902,6 +1937,7 @@ export function startDeckInjector(inspect, options = {}) {
     if (stopped) return;
     stopped = true;
     availableModels.clear();
+    availableEstimates.clear();
     clearInterval(timer);
     await Promise.all([...sockets].map(async ([id, entry]) => {
       try { await evaluate(entry, entry.context, `globalThis.__agyCapsuleDeck?.owner===${owner}&&globalThis.__agyCapsuleDeck.dispose()`); }
@@ -1916,6 +1952,7 @@ export function startDeckInjector(inspect, options = {}) {
     if (busy || stopped) return;
     busy = true;
     const nextModels = new Map();
+    const nextEstimates = new Map();
     try {
       const list = await pages();
       let noAnchor = 0, failed = 0;
@@ -1960,7 +1997,10 @@ export function startDeckInjector(inspect, options = {}) {
               if (entry.closed || context !== entry.context || cloud === false) continue;
               if (cloud === null || cloud?.conversationId === mainId) options.onCloudTelemetry?.(mainId, cloud);
             }
-            const data = await Promise.resolve().then(() => inspect(mainId, true)).catch(() => null);
+            const estimate = mainId ? state.contextEstimate ?? null : null;
+            if (estimate) nextEstimates.set(mainId, estimate);
+            const data = await Promise.resolve().then(() => estimate
+              ? inspect(mainId, true, false, estimate) : inspect(mainId, true)).catch(() => null);
             if (data && !data.error && !stopped) {
               const payload = JSON.stringify(data);
               if (entry.lastPayload !== payload || entry.lastPath !== state.path || entry.lastConversationId !== mainId || state.loadedMain === false) {
@@ -2006,11 +2046,15 @@ export function startDeckInjector(inspect, options = {}) {
         : noAnchorSince !== null && now() - noAnchorSince >= 60_000 ? 'no-anchor' : 'ok';
       options.onStatus?.(cdpState);
     } finally {
-      if (!stopped) availableModels = nextModels;
+      if (!stopped) {
+        availableModels = nextModels;
+        availableEstimates = nextEstimates;
+      }
       busy = false;
     }
   };
   const timer = setInterval(tick, INTERVAL_MS);
   console.log('[deck] injector started, port file:', options.portFile || PORT_FILE);
-  return { tick, stop, status: () => cdpState, models: conversationId => availableModels.get(conversationId) ?? [] };
+  return { tick, stop, status: () => cdpState, models: conversationId => availableModels.get(conversationId) ?? [],
+    contextEstimate: conversationId => availableEstimates.get(conversationId) ?? null };
 }
