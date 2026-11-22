@@ -62,7 +62,7 @@ test('automatic check is gated by saved prefs and shares the in-flight request a
   assert.equal((await immediate).latestVersion, '1.2.6');
 });
 
-test('manual checks bypass the TTL, identify latest/up-to-date and give safe error reasons', async () => {
+test('manual checks bypass the normal TTL, identify versions and give safe error reasons', async () => {
   let calls = 0, now = 0, answer = () => release('v1.2.3');
   const check = createVersionChecker({
     currentVersion: '1.2.3', getPrefs: () => ({ notifyUpdates: true }), now: () => now, failureTtlMs: 10,
@@ -89,6 +89,8 @@ test('manual checks bypass the TTL, identify latest/up-to-date and give safe err
   assert.equal((await check('auto')).status, 'idle');
   assert.equal(calls, 4);
   assert.equal((await check('manual')).reason, 'rateLimit');
+  assert.equal(calls, 4, 'manual checks share the limit cooldown');
+  now += 60_000;
   answer = () => new Response('', { status: 404 });
   assert.equal((await check('manual')).reason, 'noRelease');
   answer = () => new Response('', { status: 503 });
@@ -100,6 +102,50 @@ test('manual checks bypass the TTL, identify latest/up-to-date and give safe err
   answer = () => { throw new DOMException('test deadline', 'TimeoutError'); };
   assert.equal((await check('manual')).reason, 'timeout');
   assert.equal((await check()).reason, 'invalidMode');
+});
+
+test('manual and automatic checks wait for the later GitHub rate limit deadline', async () => {
+  let now = 100_000, calls = 0;
+  const check = createVersionChecker({
+    currentVersion: '1.2.3', getPrefs: () => ({ notifyUpdates: true }), now: () => now,
+    fetchImpl: async () => ++calls === 1 ? new Response('', {
+      status: 403, headers: { 'Retry-After': '90', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '220' },
+    }) : release('v1.2.4'),
+  });
+  const limited = { status: 'error', currentVersion: '1.2.3', reason: 'rateLimit', retryAt: 220_000 };
+  assert.deepEqual(await check('manual'), limited);
+  now = 219_999;
+  assert.deepEqual(await check('manual'), limited);
+  assert.equal((await check('auto')).status, 'idle');
+  assert.equal(calls, 1);
+  now++;
+  assert.deepEqual((await Promise.all([check('auto'), check('manual')])).map(r => r.status), ['update', 'update']);
+  assert.equal(calls, 2);
+});
+
+test('GitHub rate limits without a usable deadline back off and eventually wait for a manual check', async () => {
+  let now = 0, calls = 0, answer = () => Response.json({ message: 'You have exceeded a secondary rate limit.' }, {
+    status: 403, headers: { 'X-RateLimit-Remaining': '37', 'X-RateLimit-Reset': '3600' },
+  });
+  const check = createVersionChecker({
+    currentVersion: '1.2.3', getPrefs: () => ({ notifyUpdates: true }), now: () => now,
+    fetchImpl: async () => { calls++; return answer(); },
+  });
+  for (const minutes of [1, 2, 4, 8]) {
+    assert.equal((await check('auto')).status, 'idle');
+    const limited = await check('manual');
+    assert.equal(limited.reason, 'rateLimit');
+    assert.equal(limited.retryAt, now + minutes * 60_000);
+    now = limited.retryAt;
+  }
+  assert.equal((await check('auto')).status, 'idle');
+  assert.equal(calls, 4);
+  answer = () => new Response('', { status: 429, headers: { 'Retry-After': '5' } });
+  assert.equal((await check('manual')).retryAt, now + 5_000);
+  now += 5_000;
+  answer = () => release('v1.2.3');
+  assert.equal((await check('auto')).status, 'current');
+  assert.equal(calls, 6);
 });
 
 test('the version notification setting defaults on for old settings and persists only booleans', t => {
@@ -118,7 +164,7 @@ test('the version notification setting defaults on for old settings and persists
 });
 
 test('sidebar renders all three languages, dismisses automatic prompts and reports manual results even after opt-out', async () => {
-  const ids = ['check', 'notify', 'status', 'notice', 'available', 'release', 'dismiss', 'update', 'update-status'];
+  const ids = ['check', 'notify', 'status', 'manual', 'notice', 'available', 'release', 'dismiss', 'update', 'update-status'];
   const nodes = Object.fromEntries(ids.map(id => {
     assert.match(UI_HTML, new RegExp('id="version-' + id + '"'));
     return [id, {
@@ -216,6 +262,12 @@ test('sidebar renders all three languages, dismisses automatic prompts and repor
   await nodes.check.click();
   assert.equal(nodes.status.textContent, '檢查失敗：GitHub 回應逾時。');
   assert.equal(nodes.check.textContent, '檢查更新');
+  assert.equal(nodes.manual.hidden, true);
+  reply = { status: 'error', reason: 'rateLimit', retryAt: new Date(2026, 0, 2, 9, 24, 30).getTime() };
+  await nodes.check.click();
+  assert.match(nodes.status.textContent, /09:24:30 後可重試/);
+  assert.equal(nodes.manual.hidden, false);
+  assert.equal(nodes.manual.textContent, '手動更新');
   for (const [locale, label, progress, failure, retry, manual] of [
     ['en', 'Update', 'Updating…', /exceeds the size limit/, 'Retry', 'Manual update'],
     ['zh-CN', '更新', '更新中…', /超过大小限制/, '重试', '手动更新'],

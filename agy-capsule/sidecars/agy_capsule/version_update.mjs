@@ -141,6 +141,7 @@ export function createPluginUpdater({
       if (!current || local.name !== 'agy-capsule') throw new UpdateError('notInstalled');
       const installedSidecar = await diskManifest(root, sidecarManifest);
       const release = await checkVersion('manual');
+      if (release?.reason === 'rateLimit') return { ...failure('rateLimit'), retryAt: release.retryAt };
       if (release?.status === 'error') throw new UpdateError(release.reason === 'timeout' ? 'timeout' : 'releaseCheck');
       const target = parseVersion(release?.releaseTag);
       if (!target || target.pre.length || target.version !== release.latestVersion || target.version !== expectedVersion

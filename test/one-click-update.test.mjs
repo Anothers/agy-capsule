@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { gzipSync } from 'node:zlib';
 import { downloadArchive, readRuntimeArchive, SIDECAR_PATH } from '../agy-capsule/sidecars/agy_capsule/update_archive.mjs';
 import { createPluginUpdater } from '../agy-capsule/sidecars/agy_capsule/version_update.mjs';
+import { createVersionChecker } from '../agy-capsule/sidecars/agy_capsule/version_check.mjs';
 import { startSelfReloadWatcher } from '../agy-capsule/sidecars/agy_capsule/reload.mjs';
 
 const latest = '1.2.0';
@@ -115,6 +116,24 @@ test('tarball validates every redirect and the final HTTPS download host', async
   const redirected = new Response('payload');
   Object.defineProperty(redirected, 'url', { value: 'https://different.example.test/file' });
   await assert.rejects(downloadArchive(archiveUrl, { fetchImpl: async () => redirected }), { reason: 'redirect' });
+});
+
+test('one-click update returns the shared rate limit deadline without downloading', async t => {
+  const instance = fixture(t);
+  let checks = 0, downloads = 0;
+  const checkVersion = createVersionChecker({
+    currentVersion: '1.1.0', now: () => 1000,
+    fetchImpl: async () => {
+      checks++;
+      return new Response('', { status: 429, headers: { 'Retry-After': '300' } });
+    },
+  });
+  const updater = instance.updater(() => { downloads++; throw new Error('unexpected download'); }, { checkVersion });
+  const limited = await checkVersion('manual');
+  assert.deepEqual(await updater(latest), { status: 'error', reason: 'rateLimit', retryAt: limited.retryAt });
+  assert.equal(checks, 1);
+  assert.equal(downloads, 0);
+  instance.unchanged();
 });
 
 test('compressed and extracted size limits and network deadline are enforced', async t => {

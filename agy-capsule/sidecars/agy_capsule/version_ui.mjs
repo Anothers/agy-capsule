@@ -4,6 +4,7 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   const button = get('check');
   const toggle = get('notify');
   const message = get('status');
+  const manualLink = get('manual');
   const notice = get('notice');
   const details = get('available');
   const release = get('release');
@@ -16,6 +17,13 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
   const installing = () => ['updating', 'updated'].includes(installResult?.status);
   const visibleUpdate = () => update && (installing() || update.manual || enabled) && update.latestVersion !== dismissed;
   const setText = (element, value) => { if (element.textContent !== value) element.textContent = value; };
+  function rateLimitMessage(retryAt) {
+    if (!Number.isFinite(retryAt)) return t.versionRateLimit;
+    const time = new Intl.DateTimeFormat(root.lang, {
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+    }).format(retryAt);
+    return t.versionRateLimitUntil.replace('{time}', time);
+  }
   function render() {
     const busy = installing();
     const state = installResult?.status || 'available';
@@ -37,17 +45,21 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
       incomplete: t.versionUpdateArchive, notInstalled: t.versionUpdateNotInstalled,
       recovery: t.versionUpdateRecovery, sidecar: t.versionSidecar,
     }[installResult?.reason] || t.versionUpdateInstall;
-    setText(updateStatus, state === 'updated' ? t.versionUpdated : installFailed ? updateError : '');
+    const installReason = installResult?.reason === 'rateLimit' ? rateLimitMessage(installResult.retryAt) : updateError;
+    setText(updateStatus, state === 'updated' ? t.versionUpdated : installFailed ? installReason : '');
     setText(release, installFailed ? t.versionUpdateManual : t.versionRelease);
     release.hidden = busy;
     dismiss.setAttribute('aria-label', t.versionDismiss);
     const failed = manualResult?.status === 'error';
-    const reason = { timeout: t.versionTimeout, rateLimit: t.versionRateLimit, noRelease: t.versionNoRelease,
+    const rateLimited = manualResult?.reason === 'rateLimit';
+    const reason = rateLimited ? rateLimitMessage(manualResult.retryAt) : { timeout: t.versionTimeout, noRelease: t.versionNoRelease,
       invalidRelease: t.versionInvalidRelease, localVersion: t.versionLocalMissing, sidecar: t.versionSidecar,
       http: t.versionHttp?.replace('{status}', manualResult?.httpStatus) }[manualResult?.reason] || t.versionNetwork;
     const current = manualResult?.status === 'current';
     message.dataset.state = current ? 'current' : failed ? 'error' : '';
     setText(message, current ? t.versionUpToDate : failed ? t.versionFailed.replace('{reason}', reason) : '');
+    setText(manualLink, t.versionUpdateManual);
+    manualLink.hidden = !rateLimited;
     const shown = visibleUpdate();
     notice.hidden = !shown;
     notice.dataset.state = state;
@@ -78,8 +90,9 @@ export function createVersionPanel(root, check, saveSettings, install, now = Dat
     try {
       const data = await check('auto');
       if (started !== revision || !enabled) return;
+      if (['update', 'current'].includes(data.status) && manualResult?.reason === 'rateLimit') manualResult = null;
       if (data.status === 'update') {
-        if (update?.latestVersion !== data.latestVersion) installResult = null;
+        if (update?.latestVersion !== data.latestVersion || installResult?.reason === 'rateLimit') installResult = null;
         if (!update?.manual || update.latestVersion !== data.latestVersion) update = data;
         if (manualResult?.status === 'current') manualResult = null;
       } else if (data.status === 'current') update = null;

@@ -19,7 +19,7 @@ import { createUsageHistory } from './usage_history.mjs';
 import { createUsagePresentation } from './usage_ui.mjs';
 import { EFFORT_BAR_CSS, EFFORT_TRACK_MARKUP } from './effort_bar.mjs';
 import { createMotionThemes } from './motion_themes.mjs';
-import { CURRENT_VERSION, VERSION_ROUTE, createVersionChecker } from './version_check.mjs';
+import { CURRENT_VERSION, RELEASES_URL, VERSION_ROUTE, createVersionChecker } from './version_check.mjs';
 import { createVersionPanel } from './version_ui.mjs';
 import { createPluginUpdater, UPDATE_ROUTE } from './version_update.mjs';
 
@@ -27,7 +27,7 @@ const settingsStore = createSettingsStore();
 const checkVersion = createVersionChecker({ getPrefs: () => settingsStore.read() });
 const updatePlugin = createPluginUpdater({ sidecarDirectory: dirname(fileURLToPath(import.meta.url)), checkVersion });
 const cloudTelemetryStore = createCloudTelemetryStore();
-const PANEL_VERSION = 154;
+const PANEL_VERSION = 155;
 const presentation = createPresentation();
 export function getNotifyText(shortcutState, prefs) {
   const t = presentation.dictionaries[prefs?.settingsLanguage] || presentation.dictionaries['zh-CN'];
@@ -1088,7 +1088,7 @@ const UI_HTML = `<!DOCTYPE html>
     .settings { display: flex; flex-direction: column; gap: 0; width: 100%; }
     .sidebar-content { padding: 12px 14px; }
     .version-panel { max-width: 1120px; margin: 0 auto 10px; font-size: 12.5px; color: var(--foreground, #ebebeb); container: version / inline-size; --version-link: color-mix(in srgb, #2b7fff 48%, var(--foreground, #ebebeb)); }
-    .sidebar-nav:has(.sidebar-tabs:is([data-view="stats"], [data-view="fx"])) + .version-panel :is(.version-line, #version-status) { display: none; }
+    .sidebar-nav:has(.sidebar-tabs:is([data-view="stats"], [data-view="fx"])) + .version-panel :is(.version-line, #version-status, #version-manual) { display: none; }
     .sidebar-nav:has(.sidebar-tabs:is([data-view="stats"], [data-view="fx"])) + .version-panel:not(:has(#version-notice:not([hidden]))) { display: none; }
     .version-line { display: flex; align-items: center; justify-content: space-between; gap: 5px; }
     #version-number { color: var(--muted-foreground, #a2a2a9); font-variant-numeric: tabular-nums; }
@@ -1120,8 +1120,8 @@ const UI_HTML = `<!DOCTYPE html>
     .version-notice[data-state="updated"] .version-actions { display: none; }
     .version-notice[data-state="updated"] .version-feedback { margin: 0; }
     #version-available { display: block; font-size: 13px; font-weight: 650; line-height: 1.3; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
-    #version-release { color: var(--version-link); font-size: 12px; text-decoration: none; }
-    #version-release:hover { text-decoration: underline; text-underline-offset: 2px; }
+    .version-link { color: var(--version-link); font-size: 12px; text-decoration: none; }
+    .version-link:hover { text-decoration: underline; text-underline-offset: 2px; }
     #version-update, #version-dismiss { display: grid; place-items: center; border: 0; border-radius: 6px; padding: 0; font: inherit; cursor: pointer; }
     #version-update { padding: 4px 10px; min-height: 29px; color: #fff; background: #2656d1; font-weight: 600; white-space: nowrap; }
     #version-update:hover:not(:disabled) { background: #1d49b9; }
@@ -1139,7 +1139,7 @@ const UI_HTML = `<!DOCTYPE html>
       #version-available { font-size: 12.5px; }
       #version-update { padding-inline: 8px; }
     }
-    @media(pointer:coarse) { .version-controls > .pv-swatch, #version-update, #version-dismiss { min-height: 44px; } #version-dismiss { width: 44px; } #version-release:not([hidden]) { display: inline-flex; align-items: center; min-height: 24px; } }
+    @media(pointer:coarse) { .version-controls > .pv-swatch, #version-update, #version-dismiss { min-height: 44px; } #version-dismiss { width: 44px; } .version-link:not([hidden]) { display: inline-flex; align-items: center; min-height: 24px; } }
     .sidebar-view[hidden] { display: none; }
     .sidebar-nav { position: sticky; top: 0; z-index: 20; margin: -12px -14px 10px; padding: 8px 14px; background: var(--background, #141414); border-bottom: 1px solid color-mix(in srgb, var(--border, rgba(142,142,147,.24)) 65%, transparent); }
     .sidebar-tabs { position: relative; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: center; max-width: 1120px; margin: 0 auto; padding: 2.5px; border-radius: 7px; background: color-mix(in srgb, var(--foreground, #ebebeb) 6%, var(--background, #141414)); border: 1px solid color-mix(in srgb, var(--foreground, #ebebeb) 10%, transparent); }
@@ -1612,6 +1612,7 @@ const UI_HTML = `<!DOCTYPE html>
       </div>
     </div>
     <p class="version-feedback" id="version-status" role="status"></p>
+    <a class="version-link" id="version-manual" href="${RELEASES_URL}" target="_blank" rel="noopener noreferrer" hidden></a>
     <div class="version-notice" id="version-notice" hidden>
       <div class="version-actions">
         <span class="version-icon" aria-hidden="true">
@@ -1620,7 +1621,7 @@ const UI_HTML = `<!DOCTYPE html>
         </span>
         <div>
           <strong id="version-available" role="status" aria-atomic="true"></strong>
-          <a id="version-release" target="_blank" rel="noopener noreferrer"></a>
+          <a class="version-link" id="version-release" target="_blank" rel="noopener noreferrer"></a>
         </div>
         <button type="button" id="version-update" aria-describedby="version-update-status"></button>
         <button type="button" id="version-dismiss"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button>

@@ -631,11 +631,17 @@ await test('Sidebar version bar saves its toggle and reports manual checks', asy
   assert.equal(await check.textContent(), '檢查更新');
   await notice.getByRole('button', { name: '暫不更新' }).click();
   await notice.waitFor({ state: 'hidden' });
+  response = { status: 'error', reason: 'rateLimit', retryAt: new Date(2026, 0, 2, 9, 24, 30).getTime() };
+  await check.click();
+  await status.getByText(/09:24:30 後可重試/).waitFor();
+  const manualLink = page.getByRole('link', { name: '手動更新' });
+  assert.equal(await manualLink.getAttribute('href'), 'https://github.com/Lumidarin/agy-capsule/releases');
   response = null;
   await check.click();
   await page.getByText('檢查失敗：無法連線至側欄的版本檢查服務。').waitFor();
+  await manualLink.waitFor({ state: 'hidden' });
   assert.equal(await check.textContent(), '檢查更新');
-  assert.deepEqual(checks, ['auto', 'manual', 'manual', 'manual']);
+  assert.deepEqual(checks, ['auto', 'manual', 'manual', 'manual', 'manual']);
   await Promise.all([page.waitForResponse(res => res.url().endsWith('/api/settings')), toggle.click()]);
   assert.deepEqual(saves, [{ notifyUpdates: false }, { notifyUpdates: true }]);
   assert.equal(await toggle.getAttribute('aria-pressed'), 'true');
